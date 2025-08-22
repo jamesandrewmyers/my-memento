@@ -18,6 +18,7 @@ struct ContentView: View {
     @State private var navigationPath = NavigationPath()
     @State private var showTagSuggestions = false
     @State private var tagSuggestions: [String] = []
+    @State private var justSelectedTag = false
 
     @FetchRequest(
         sortDescriptors: [NSSortDescriptor(keyPath: \Note.createdAt, ascending: false)],
@@ -177,6 +178,20 @@ struct ContentView: View {
     }
     
     private func updateTagSuggestions(for text: String) {
+        // If we just selected a tag, don't show suggestions until user types non-whitespace
+        if justSelectedTag {
+            // Check if user typed a non-whitespace character after tag selection
+            let trimmedText = text.trimmingCharacters(in: .whitespaces)
+            if text.count > trimmedText.count + 1 { // Still just whitespace after tag
+                showTagSuggestions = false
+                tagSuggestions = []
+                return
+            } else {
+                // User typed a non-whitespace character, reset the flag
+                justSelectedTag = false
+            }
+        }
+        
         let words = text.split(separator: " ")
         guard let currentWord = words.last, currentWord.hasPrefix("#") else {
             showTagSuggestions = false
@@ -217,6 +232,7 @@ struct ContentView: View {
         searchText = newWords.joined(separator: " ") + " "
         showTagSuggestions = false
         tagSuggestions = []
+        justSelectedTag = true
         performSearch()
     }
     

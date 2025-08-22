@@ -47,35 +47,43 @@ struct ContentView: View {
                 .padding(.top, 8)
                 
                 List {
-                    ForEach(displayedNotes, id: \.objectID) { note in
-                        HStack {
-                            if isDeleteMode {
-                                Button(action: { deleteNote(note) }) {
-                                    Image(systemName: "x.circle.fill")
-                                        .foregroundColor(.red)
-                                        .font(.title2)
-                                }
-                                .buttonStyle(PlainButtonStyle())
-                            }
-                            
-                            NavigationLink(value: note) {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(note.title ?? "Untitled")
-                                        .font(.headline)
-                                        .foregroundColor(.primary)
-                                    
-                                    if let tags = note.tags, !tags.isEmpty {
-                                        Text(tags)
-                                            .font(.subheadline)
-                                            .foregroundColor(.secondary)
+                    if displayedNotes.isEmpty {
+                        Text("(no notes)")
+                            .foregroundColor(.secondary)
+                            .italic()
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .listRowSeparator(.hidden)
+                    } else {
+                        ForEach(displayedNotes, id: \.objectID) { note in
+                            HStack {
+                                if isDeleteMode {
+                                    Button(action: { deleteNote(note) }) {
+                                        Image(systemName: "x.circle.fill")
+                                            .foregroundColor(.red)
+                                            .font(.title2)
                                     }
+                                    .buttonStyle(PlainButtonStyle())
                                 }
-                                .padding(.vertical, 2)
+                                
+                                NavigationLink(value: note) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(note.title ?? "Untitled")
+                                            .font(.headline)
+                                            .foregroundColor(.primary)
+                                        
+                                        if let tags = note.tags, !tags.isEmpty {
+                                            Text(tags)
+                                                .font(.subheadline)
+                                                .foregroundColor(.secondary)
+                                        }
+                                    }
+                                    .padding(.vertical, 2)
+                                }
+                                .disabled(isDeleteMode)
                             }
-                            .disabled(isDeleteMode)
                         }
+                        .onDelete(perform: isDeleteMode ? nil : deleteNotes)
                     }
-                    .onDelete(perform: isDeleteMode ? nil : deleteNotes)
                 }
                 .navigationTitle("Notes")
             }

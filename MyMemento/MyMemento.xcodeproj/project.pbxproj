@@ -24,6 +24,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		DF1A2C902E588062005BAD90 /* SyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncService.swift; sourceTree = "<group>"; };
 		DFBB99642E580A570026D204 /* MyMemento.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MyMemento.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DFBB99762E580A580026D204 /* MyMementoTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MyMementoTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		DFBB99802E580A580026D204 /* MyMementoUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MyMementoUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -72,9 +73,18 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		DF1A2C8F2E58804C005BAD90 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				DF1A2C902E588062005BAD90 /* SyncService.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
 		DFBB995B2E580A570026D204 = {
 			isa = PBXGroup;
 			children = (
+				DF1A2C8F2E58804C005BAD90 /* Services */,
 				DFBB99662E580A570026D204 /* MyMemento */,
 				DFBB99792E580A580026D204 /* MyMementoTests */,
 				DFBB99832E580A580026D204 /* MyMementoUITests */,

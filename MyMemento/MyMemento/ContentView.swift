@@ -110,6 +110,7 @@ struct ContentView: View {
             
             do {
                 try viewContext.save()
+                SyncService.shared.upload(notes: Array(notes))
             } catch {
                 let nsError = error as NSError
                 fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
@@ -141,6 +142,7 @@ struct ContentView: View {
 
         do {
             try viewContext.save()
+            SyncService.shared.upload(notes: Array(notes))
             navigationPath.append(note)
         } catch {
             let nsError = error as NSError
@@ -154,6 +156,7 @@ struct ContentView: View {
 
             do {
                 try viewContext.save()
+                SyncService.shared.upload(notes: Array(notes))
             } catch {
                 let nsError = error as NSError
                 fatalError("Unresolved error \(nsError), \(nsError.userInfo)")

@@ -243,17 +243,18 @@ struct ContentView: View {
     }
     
     private func performSearch() {
-        if searchText.isEmpty {
+        let trimmedSearchText = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedSearchText.isEmpty {
             isSearching = false
             filteredNotes = []
         } else {
             isSearching = true
             filteredNotes = notes.filter { note in
-                let titleContains = (note.title ?? "").localizedCaseInsensitiveContains(searchText)
-                let bodyContains = (note.body ?? "").localizedCaseInsensitiveContains(searchText)
+                let titleContains = (note.title ?? "").localizedCaseInsensitiveContains(trimmedSearchText)
+                let bodyContains = (note.body ?? "").localizedCaseInsensitiveContains(trimmedSearchText)
                 var tagsContains = false;
-                if searchText.hasPrefix("#") {
-                    tagsContains = (note.tags ?? "").localizedCaseInsensitiveContains(searchText.dropFirst())
+                if trimmedSearchText.hasPrefix("#") {
+                    tagsContains = (note.tags ?? "").localizedCaseInsensitiveContains(trimmedSearchText.dropFirst())
                 }
                 if titleContains {
                     print("title contains")

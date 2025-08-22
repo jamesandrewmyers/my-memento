@@ -19,6 +19,7 @@ struct ContentView: View {
     @State private var showTagSuggestions = false
     @State private var tagSuggestions: [String] = []
     @State private var justSelectedTag = false
+    @State private var lastSearchTextAfterSelection = ""
 
     @FetchRequest(
         sortDescriptors: [NSSortDescriptor(keyPath: \Note.createdAt, ascending: false)],
@@ -178,16 +179,19 @@ struct ContentView: View {
     }
     
     private func updateTagSuggestions(for text: String) {
-        // If we just selected a tag, don't show suggestions until user types non-whitespace
+        // If we just selected a tag, only show suggestions if user has typed significantly new content
         if justSelectedTag {
-            // Check if user typed a non-whitespace character after tag selection
-            let trimmedText = text.trimmingCharacters(in: .whitespaces)
-            if text.count > trimmedText.count + 1 { // Still just whitespace after tag
+            // Check if the current text is just the same as after selection (possibly with trailing spaces)
+            let textWithoutTrailingSpaces = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let lastTextWithoutTrailingSpaces = lastSearchTextAfterSelection.trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            if textWithoutTrailingSpaces == lastTextWithoutTrailingSpaces {
+                // User hasn't typed any meaningful new content, keep suggestions hidden
                 showTagSuggestions = false
                 tagSuggestions = []
                 return
             } else {
-                // User typed a non-whitespace character, reset the flag
+                // User typed something new, reset the flag
                 justSelectedTag = false
             }
         }
@@ -229,7 +233,9 @@ struct ContentView: View {
         let words = searchText.split(separator: " ")
         var newWords = words.dropLast()
         newWords.append("#\(tag)")
-        searchText = newWords.joined(separator: " ") + " "
+        let newText = newWords.joined(separator: " ") + " "
+        searchText = newText
+        lastSearchTextAfterSelection = newText
         showTagSuggestions = false
         tagSuggestions = []
         justSelectedTag = true

@@ -10,16 +10,41 @@ import CoreData
 
 struct ContentView: View {
     @Environment(\.managedObjectContext) private var viewContext
+    @State private var searchText = ""
+    @State private var filteredNotes: [Note] = []
+    @State private var isSearching = false
 
     @FetchRequest(
         sortDescriptors: [NSSortDescriptor(keyPath: \Note.createdAt, ascending: false)],
         animation: .default)
     private var notes: FetchedResults<Note>
+    
+    private var displayedNotes: [Note] {
+        if isSearching {
+            return filteredNotes
+        } else {
+            return Array(notes)
+        }
+    }
 
     var body: some View {
         NavigationView {
-            List {
-                ForEach(notes, id: \.objectID) { note in
+            VStack {
+                HStack {
+                    TextField("Search notes...", text: $searchText)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                    
+                    Button(action: performSearch) {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundColor(.blue)
+                    }
+                    .padding(.leading, 4)
+                }
+                .padding(.horizontal)
+                .padding(.top, 8)
+                
+                List {
+                    ForEach(displayedNotes, id: \.objectID) { note in
                     NavigationLink(destination: NoteEditView(note: note)) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(note.title ?? "Untitled")
@@ -36,14 +61,29 @@ struct ContentView: View {
                     }
                 }
                 .onDelete(perform: deleteNotes)
+                }
+                .navigationTitle("Notes")
             }
-            .navigationTitle("Notes")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button(action: addNote) {
                         Image(systemName: "plus")
                     }
                 }
+            }
+        }
+    }
+    
+    private func performSearch() {
+        if searchText.isEmpty {
+            isSearching = false
+            filteredNotes = []
+        } else {
+            isSearching = true
+            filteredNotes = notes.filter { note in
+                let titleContains = (note.title ?? "").localizedCaseInsensitiveContains(searchText)
+                let bodyContains = (note.body ?? "").localizedCaseInsensitiveContains(searchText)
+                return titleContains || bodyContains
             }
         }
     }
@@ -66,7 +106,7 @@ struct ContentView: View {
 
     private func deleteNotes(offsets: IndexSet) {
         withAnimation {
-            offsets.map { notes[$0] }.forEach(viewContext.delete)
+            offsets.map { displayedNotes[$0] }.forEach(viewContext.delete)
 
             do {
                 try viewContext.save()

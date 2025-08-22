@@ -18,9 +18,62 @@ struct ContentView: View {
 
     var body: some View {
         NavigationView {
-            Text("MyMemento")
-                .font(.largeTitle)
-                .fontWeight(.bold)
+            List {
+                ForEach(notes, id: \.objectID) { note in
+                    NavigationLink(destination: NoteEditView(note: note)) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(note.title ?? "Untitled")
+                                .font(.headline)
+                                .foregroundColor(.primary)
+                            
+                            if let tags = note.tags, !tags.isEmpty {
+                                Text(tags)
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+                .onDelete(perform: deleteNotes)
+            }
+            .navigationTitle("Notes")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(action: addNote) {
+                        Image(systemName: "plus")
+                    }
+                }
+            }
+        }
+    }
+
+    private func addNote() {
+        let note = Note(context: viewContext)
+        note.id = UUID()
+        note.title = "New Note"
+        note.body = ""
+        note.tags = ""
+        note.createdAt = Date()
+
+        do {
+            try viewContext.save()
+        } catch {
+            let nsError = error as NSError
+            fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
+        }
+    }
+
+    private func deleteNotes(offsets: IndexSet) {
+        withAnimation {
+            offsets.map { notes[$0] }.forEach(viewContext.delete)
+
+            do {
+                try viewContext.save()
+            } catch {
+                let nsError = error as NSError
+                fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
+            }
         }
     }
 

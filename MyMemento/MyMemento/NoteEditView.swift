@@ -14,6 +14,11 @@ struct NoteEditView: View {
     
     @ObservedObject var note: Note
     
+    @FetchRequest(
+        sortDescriptors: [NSSortDescriptor(keyPath: \Note.createdAt, ascending: false)],
+        animation: .default)
+    private var allNotes: FetchedResults<Note>
+    
     @State private var title: String = ""
     @State private var tags: String = ""
     @State private var noteBody: String = ""
@@ -66,6 +71,7 @@ struct NoteEditView: View {
         
         do {
             try viewContext.save()
+            SyncService.shared.upload(notes: Array(allNotes))
             dismiss()
         } catch {
             let nsError = error as NSError

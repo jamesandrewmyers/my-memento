@@ -16,6 +16,8 @@ struct ContentView: View {
     @State private var isSearching = false
     @State private var isDeleteMode = false
     @State private var navigationPath = NavigationPath()
+    @State private var showTagSuggestions = false
+    @State private var tagSuggestions: [String] = []
 
     @FetchRequest(
         sortDescriptors: [NSSortDescriptor(keyPath: \Note.createdAt, ascending: false)],
@@ -29,19 +31,61 @@ struct ContentView: View {
             return Array(notes)
         }
     }
+    
+    private var allTags: [String] {
+        let tagStrings = notes.compactMap { $0.tags }
+        let individualTags = tagStrings.flatMap { tagString in
+            tagString.split(separator: " ").map { String($0) }
+        }
+        return Array(Set(individualTags)).sorted()
+    }
 
     var body: some View {
         NavigationStack(path: $navigationPath) {
             VStack {
-                HStack {
-                    TextField("Search notes...", text: $searchText)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                    
-                    Button(action: performSearch) {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundColor(.blue)
+                VStack(alignment: .leading) {
+                    HStack {
+                        TextField("Search notes...", text: $searchText)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .onChange(of: searchText) { _, newValue in
+                                updateTagSuggestions(for: newValue)
+                            }
+                        
+                        Button(action: performSearch) {
+                            Image(systemName: "magnifyingglass")
+                                .foregroundColor(.blue)
+                        }
+                        .padding(.leading, 4)
                     }
-                    .padding(.leading, 4)
+                    
+                    if showTagSuggestions {
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(tagSuggestions, id: \.self) { tag in
+                                Button(action: { selectTag(tag) }) {
+                                    HStack {
+                                        Text("#\(tag)")
+                                            .foregroundColor(.primary)
+                                        Spacer()
+                                    }
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                                .background(Color(UIColor.systemBackground))
+                                
+                                if tag != tagSuggestions.last {
+                                    Divider()
+                                }
+                            }
+                        }
+                        .background(Color(UIColor.systemBackground))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                        )
+                        .cornerRadius(8)
+                        .shadow(radius: 2)
+                    }
                 }
                 .padding(.horizontal)
                 .padding(.top, 8)
@@ -132,6 +176,50 @@ struct ContentView: View {
         }
     }
     
+    private func updateTagSuggestions(for text: String) {
+        let words = text.split(separator: " ")
+        guard let currentWord = words.last, currentWord.hasPrefix("#") else {
+            showTagSuggestions = false
+            tagSuggestions = []
+            return
+        }
+        
+        if currentWord.count == 1 {
+            // Just typed "#", show all available tags
+            if allTags.isEmpty {
+                showTagSuggestions = false
+                tagSuggestions = []
+            } else {
+                tagSuggestions = allTags
+                showTagSuggestions = true
+            }
+            return
+        }
+        
+        let tagPrefix = String(currentWord.dropFirst()).lowercased()
+        let matchingTags = allTags.filter { tag in
+            tag.lowercased().hasPrefix(tagPrefix)
+        }
+        
+        if matchingTags.isEmpty {
+            showTagSuggestions = false
+            tagSuggestions = []
+        } else {
+            tagSuggestions = matchingTags
+            showTagSuggestions = true
+        }
+    }
+    
+    private func selectTag(_ tag: String) {
+        let words = searchText.split(separator: " ")
+        var newWords = words.dropLast()
+        newWords.append("#\(tag)")
+        searchText = newWords.joined(separator: " ") + " "
+        showTagSuggestions = false
+        tagSuggestions = []
+        performSearch()
+    }
+    
     private func performSearch() {
         if searchText.isEmpty {
             isSearching = false
@@ -141,7 +229,20 @@ struct ContentView: View {
             filteredNotes = notes.filter { note in
                 let titleContains = (note.title ?? "").localizedCaseInsensitiveContains(searchText)
                 let bodyContains = (note.body ?? "").localizedCaseInsensitiveContains(searchText)
-                return titleContains || bodyContains
+                var tagsContains = false;
+                if searchText.hasPrefix("#") {
+                    tagsContains = (note.tags ?? "").localizedCaseInsensitiveContains(searchText.dropFirst())
+                }
+                if titleContains {
+                    print("title contains")
+                }
+                if bodyContains {
+                    print("body contains")
+                }
+                if tagsContains {
+                    print("tags contains")
+                }
+                return titleContains || bodyContains || tagsContains;
             }
         }
     }

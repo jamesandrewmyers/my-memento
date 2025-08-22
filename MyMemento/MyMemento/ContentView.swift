@@ -13,6 +13,7 @@ struct ContentView: View {
     @State private var searchText = ""
     @State private var filteredNotes: [Note] = []
     @State private var isSearching = false
+    @State private var isDeleteMode = false
 
     @FetchRequest(
         sortDescriptors: [NSSortDescriptor(keyPath: \Note.createdAt, ascending: false)],
@@ -45,31 +46,69 @@ struct ContentView: View {
                 
                 List {
                     ForEach(displayedNotes, id: \.objectID) { note in
-                    NavigationLink(destination: NoteEditView(note: note)) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(note.title ?? "Untitled")
-                                .font(.headline)
-                                .foregroundColor(.primary)
-                            
-                            if let tags = note.tags, !tags.isEmpty {
-                                Text(tags)
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
+                        HStack {
+                            if isDeleteMode {
+                                Button(action: { deleteNote(note) }) {
+                                    Image(systemName: "x.circle.fill")
+                                        .foregroundColor(.red)
+                                        .font(.title2)
+                                }
+                                .buttonStyle(PlainButtonStyle())
                             }
+                            
+                            NavigationLink(destination: NoteEditView(note: note)) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(note.title ?? "Untitled")
+                                        .font(.headline)
+                                        .foregroundColor(.primary)
+                                    
+                                    if let tags = note.tags, !tags.isEmpty {
+                                        Text(tags)
+                                            .font(.subheadline)
+                                            .foregroundColor(.secondary)
+                                    }
+                                }
+                                .padding(.vertical, 2)
+                            }
+                            .disabled(isDeleteMode)
                         }
-                        .padding(.vertical, 2)
                     }
-                }
-                .onDelete(perform: deleteNotes)
+                    .onDelete(perform: isDeleteMode ? nil : deleteNotes)
                 }
                 .navigationTitle("Notes")
             }
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: addNote) {
-                        Image(systemName: "plus")
+                    HStack {
+                        Button(action: toggleDeleteMode) {
+                            Image(systemName: "minus")
+                                .foregroundColor(isDeleteMode ? .red : .primary)
+                        }
+                        
+                        Button(action: addNote) {
+                            Image(systemName: "plus")
+                        }
                     }
                 }
+            }
+        }
+    }
+    
+    private func toggleDeleteMode() {
+        withAnimation {
+            isDeleteMode.toggle()
+        }
+    }
+    
+    private func deleteNote(_ note: Note) {
+        withAnimation {
+            viewContext.delete(note)
+            
+            do {
+                try viewContext.save()
+            } catch {
+                let nsError = error as NSError
+                fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
             }
         }
     }

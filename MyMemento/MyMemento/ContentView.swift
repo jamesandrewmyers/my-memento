@@ -10,6 +10,7 @@ import CoreData
 
 struct ContentView: View {
     @Environment(\.managedObjectContext) private var viewContext
+    @StateObject private var errorManager = ErrorManager.shared
     @State private var searchText = ""
     @State private var filteredNotes: [Note] = []
     @State private var isSearching = false
@@ -95,6 +96,11 @@ struct ContentView: View {
                     }
                 }
             }
+            .alert("Error", isPresented: $errorManager.showError) {
+                Button("OK") { }
+            } message: {
+                Text(errorManager.errorMessage)
+            }
         }
     }
     
@@ -113,7 +119,7 @@ struct ContentView: View {
                 SyncService.shared.upload(notes: Array(notes))
             } catch {
                 let nsError = error as NSError
-                fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
+                errorManager.handleCoreDataError(nsError, context: "Failed to delete note")
             }
         }
     }
@@ -145,8 +151,9 @@ struct ContentView: View {
             SyncService.shared.upload(notes: Array(notes))
             navigationPath.append(note)
         } catch {
+            viewContext.delete(note)
             let nsError = error as NSError
-            fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
+            errorManager.handleCoreDataError(nsError, context: "Failed to save new note")
         }
     }
 
@@ -159,7 +166,7 @@ struct ContentView: View {
                 SyncService.shared.upload(notes: Array(notes))
             } catch {
                 let nsError = error as NSError
-                fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
+                errorManager.handleCoreDataError(nsError, context: "Failed to delete notes")
             }
         }
     }

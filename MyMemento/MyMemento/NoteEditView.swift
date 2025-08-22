@@ -11,6 +11,7 @@ import CoreData
 struct NoteEditView: View {
     @Environment(\.managedObjectContext) private var viewContext
     @Environment(\.dismiss) private var dismiss
+    @StateObject private var errorManager = ErrorManager.shared
     
     @ObservedObject var note: Note
     
@@ -56,6 +57,11 @@ struct NoteEditView: View {
         .onAppear {
             loadNoteData()
         }
+        .alert("Error", isPresented: $errorManager.showError) {
+            Button("OK") { }
+        } message: {
+            Text(errorManager.errorMessage)
+        }
     }
     
     private func loadNoteData() {
@@ -75,7 +81,7 @@ struct NoteEditView: View {
             dismiss()
         } catch {
             let nsError = error as NSError
-            fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
+            errorManager.handleCoreDataError(nsError, context: "Failed to save note")
         }
     }
 }

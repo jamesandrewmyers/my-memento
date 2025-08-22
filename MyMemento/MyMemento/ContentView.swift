@@ -14,6 +14,7 @@ struct ContentView: View {
     @State private var filteredNotes: [Note] = []
     @State private var isSearching = false
     @State private var isDeleteMode = false
+    @State private var navigationPath = NavigationPath()
 
     @FetchRequest(
         sortDescriptors: [NSSortDescriptor(keyPath: \Note.createdAt, ascending: false)],
@@ -29,7 +30,7 @@ struct ContentView: View {
     }
 
     var body: some View {
-        NavigationView {
+        NavigationStack(path: $navigationPath) {
             VStack {
                 HStack {
                     TextField("Search notes...", text: $searchText)
@@ -56,7 +57,7 @@ struct ContentView: View {
                                 .buttonStyle(PlainButtonStyle())
                             }
                             
-                            NavigationLink(destination: NoteEditView(note: note)) {
+                            NavigationLink(value: note) {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(note.title ?? "Untitled")
                                         .font(.headline)
@@ -76,6 +77,9 @@ struct ContentView: View {
                     .onDelete(perform: isDeleteMode ? nil : deleteNotes)
                 }
                 .navigationTitle("Notes")
+            }
+            .navigationDestination(for: Note.self) { note in
+                NoteEditView(note: note)
             }
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -137,6 +141,7 @@ struct ContentView: View {
 
         do {
             try viewContext.save()
+            navigationPath.append(note)
         } catch {
             let nsError = error as NSError
             fatalError("Unresolved error \(nsError), \(nsError.userInfo)")

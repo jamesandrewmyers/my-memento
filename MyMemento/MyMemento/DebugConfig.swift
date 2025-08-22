@@ -18,13 +18,7 @@ struct DebugConfig {
     ///     print("Debug: performing additional logging")
     /// }
     /// ```
-    static let DEBUG_MODE: Bool = {
-        #if DEBUG
-        return true
-        #else
-        return false
-        #endif
-    }()
+    static let DEBUG_MODE: Bool = true
 }
 
 /// Global convenience constant for easy access to debug mode

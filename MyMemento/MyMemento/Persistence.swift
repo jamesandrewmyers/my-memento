@@ -61,5 +61,58 @@ struct PersistenceController {
             }
         })
         container.viewContext.automaticallyMergesChangesFromParent = true
+        
+        // Create example notes in debug mode when storage is empty
+        createExampleNotesIfNeeded()
+    }
+    
+    /// Creates example notes when storage is empty and DEBUG_MODE is enabled
+    private func createExampleNotesIfNeeded() {
+        guard DEBUG_MODE else { return }
+        
+        let context = container.viewContext
+        let request: NSFetchRequest<Note> = Note.fetchRequest()
+        
+        do {
+            let existingNotesCount = try context.count(for: request)
+            
+            // Only create example notes if storage is completely empty
+            guard existingNotesCount == 0 else { return }
+            
+            let logger = Logger(subsystem: "app.jam.ios.MyMemento", category: "Persistence")
+            logger.info("DEBUG_MODE: Creating example notes for empty storage")
+            
+            // Create 3 example notes with different content
+            let exampleNotes = [
+                (title: "Welcome to MyMemento", 
+                 body: "This is your personal note-taking app. You can create, edit, and organize your thoughts here. Use tags to categorize your notes and search to find them quickly.",
+                 tags: "welcome,getting-started"),
+                 
+                (title: "Meeting Notes - Project Alpha", 
+                 body: "Discussed the new features for Q4:\n• Implement user authentication\n• Add export functionality\n• Improve search capabilities\n\nNext meeting: Friday 2PM",
+                 tags: "work,meetings,project-alpha"),
+                 
+                (title: "Book Ideas", 
+                 body: "Random thoughts for the novel I want to write:\n\n- Character: A detective who can see memories\n- Setting: Near-future cyberpunk city\n- Plot twist: The memories aren't real\n\nNeed to research: Memory implantation technology",
+                 tags: "creative,writing,ideas")
+            ]
+            
+            for (index, noteData) in exampleNotes.enumerated() {
+                let note = Note(context: context)
+                note.id = UUID()
+                note.title = noteData.title
+                note.body = noteData.body
+                note.tags = noteData.tags
+                note.createdAt = Date().addingTimeInterval(-Double(index * 3600)) // Stagger creation times by 1 hour each
+            }
+            
+            try context.save()
+            logger.info("DEBUG_MODE: Successfully created \(exampleNotes.count) example notes")
+            
+        } catch {
+            let logger = Logger(subsystem: "app.jam.ios.MyMemento", category: "Persistence")
+            let nsError = error as NSError
+            logger.error("DEBUG_MODE: Failed to create example notes: \(nsError.localizedDescription)")
+        }
     }
 }

@@ -276,10 +276,19 @@ struct ContentView: View {
     
     private func deleteNote(_ note: Note) {
         withAnimation {
+            // Capture tags before deleting the note
+            let associatedTags = Array(note.tags as? Set<Tag> ?? Set<Tag>())
+            
             viewContext.delete(note)
             
             do {
                 try viewContext.save()
+                
+                // Clean up orphaned tags after the note is deleted and saved
+                for tag in associatedTags {
+                    TagManager.handleTagRemovedFromNote(tag, in: viewContext)
+                }
+                
                 SyncService.shared.upload(notes: Array(notes))
             } catch {
                 let nsError = error as NSError
@@ -413,10 +422,26 @@ struct ContentView: View {
 
     private func deleteNotes(offsets: IndexSet) {
         withAnimation {
-            offsets.map { displayedNotes[$0] }.forEach(viewContext.delete)
+            let notesToDelete = offsets.map { displayedNotes[$0] }
+            
+            // Capture all tags from notes before deletion
+            var allAssociatedTags = Set<Tag>()
+            for note in notesToDelete {
+                if let tags = note.tags as? Set<Tag> {
+                    allAssociatedTags.formUnion(tags)
+                }
+            }
+            
+            notesToDelete.forEach(viewContext.delete)
 
             do {
                 try viewContext.save()
+                
+                // Clean up orphaned tags after notes are deleted and saved
+                for tag in allAssociatedTags {
+                    TagManager.handleTagRemovedFromNote(tag, in: viewContext)
+                }
+                
                 SyncService.shared.upload(notes: Array(notes))
             } catch {
                 let nsError = error as NSError

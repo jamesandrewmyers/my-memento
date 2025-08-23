@@ -113,6 +113,9 @@ struct NoteEditView: View {
     private func saveNote() {
         note.title = title
         
+        // Capture existing tags before removing them for cleanup
+        let existingTags = Array(note.tags as? Set<Tag> ?? Set<Tag>())
+        
         // Clear existing tags
         note.removeFromTags(note.tags ?? NSSet())
         
@@ -126,6 +129,12 @@ struct NoteEditView: View {
         
         do {
             try viewContext.save()
+            
+            // Clean up orphaned tags from the previously existing tags
+            for tag in existingTags {
+                TagManager.handleTagRemovedFromNote(tag, in: viewContext)
+            }
+            
             SyncService.shared.upload(notes: Array(allNotes))
             dismiss()
         } catch {

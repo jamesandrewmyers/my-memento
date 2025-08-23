@@ -128,16 +128,14 @@ struct ContentView: View {
                     Button(action: { sortByTitle = false }) {
                         Text("created")
                             .font(.subheadline)
-                            .foregroundColor(sortByTitle ? .secondary : .blue)
-                            .underline(!sortByTitle)
+                            .foregroundColor(sortByTitle ? .blue : .secondary)
                     }
                     .buttonStyle(PlainButtonStyle())
                     
                     Button(action: { sortByTitle = true }) {
                         Text("title")
                             .font(.subheadline)
-                            .foregroundColor(sortByTitle ? .blue : .secondary)
-                            .underline(sortByTitle)
+                            .foregroundColor(sortByTitle ? .secondary : .blue)
                     }
                     .buttonStyle(PlainButtonStyle())
                     

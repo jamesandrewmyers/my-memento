@@ -129,6 +129,7 @@ struct TagListView: View {
 
 struct TaggedNotesView: View {
     @Environment(\.managedObjectContext) private var viewContext
+    @Environment(\.dismiss) private var dismiss
     @StateObject private var errorManager = ErrorManager.shared
     let tag: Tag
     
@@ -258,30 +259,38 @@ struct TaggedNotesView: View {
             return
         }
         
-        // Check if tag name already exists (excluding current tag)
-        let fetchRequest: NSFetchRequest<Tag> = Tag.fetchRequest()
-        let tagId = tag.id ?? UUID()
-        fetchRequest.predicate = NSPredicate(format: "name == %@ AND id != %@", trimmedName, tagId as CVarArg)
-        
-        do {
-            let existingTags = try viewContext.fetch(fetchRequest)
-            if !existingTags.isEmpty {
-                errorManager.handleCoreDataError(
-                    NSError(domain: "TagEdit", code: 2, userInfo: [NSLocalizedDescriptionKey: "A tag with this name already exists"]),
-                    context: "Tag name validation failed"
-                )
-                return
-            }
-            
-            // Save the new tag name
-            tag.name = trimmedName
-            try viewContext.save()
-            
-            // Force refresh of all objects to update UI displays
-            viewContext.refreshAllObjects()
-            
+        // Check if the name is the same as current (no change needed)
+        if trimmedName.caseInsensitiveCompare(tag.name ?? "") == .orderedSame {
             isEditingTitle = false
             editedTagName = ""
+            return
+        }
+        
+        do {
+            // Check if a tag with this name already exists (case-insensitive)
+            if let existingTag = try TagManager.findExistingTag(named: trimmedName, excluding: tag, in: viewContext) {
+                // Merge this tag into the existing tag
+                try TagManager.mergeTag(tag, into: existingTag, in: viewContext)
+                
+                // Force refresh to update UI displays
+                viewContext.refreshAllObjects()
+                
+                // Close editing and dismiss view since the tag was merged/deleted
+                isEditingTitle = false
+                editedTagName = ""
+                dismiss()
+                
+            } else {
+                // No existing tag, just rename this one
+                tag.name = trimmedName
+                try viewContext.save()
+                
+                // Force refresh of all objects to update UI displays
+                viewContext.refreshAllObjects()
+                
+                isEditingTitle = false
+                editedTagName = ""
+            }
             
         } catch {
             let nsError = error as NSError

@@ -75,4 +75,58 @@ struct TagManager {
             logger.error("Failed to cleanup orphaned tags after note deletion: \(nsError.localizedDescription)")
         }
     }
+    
+    /// Merges a source tag into a target tag by moving all note relationships
+    /// - Parameters:
+    ///   - sourceTag: The tag to be merged and removed
+    ///   - targetTag: The existing tag to receive all note relationships
+    ///   - context: The managed object context to use for operations
+    /// - Throws: Core Data errors if operations fail
+    static func mergeTag(_ sourceTag: Tag, into targetTag: Tag, in context: NSManagedObjectContext) throws {
+        let logger = Logger(subsystem: "app.jam.ios.MyMemento", category: "TagManager")
+        
+        guard sourceTag.id != targetTag.id else {
+            logger.info("Attempted to merge tag into itself, ignoring")
+            return
+        }
+        
+        logger.info("Merging tag '\(sourceTag.name ?? "Unknown")' into '\(targetTag.name ?? "Unknown")'")
+        
+        // Get all notes associated with the source tag
+        if let sourceNotes = sourceTag.notes as? Set<Note> {
+            for note in sourceNotes {
+                // Remove the note from source tag
+                note.removeFromTags(sourceTag)
+                
+                // Add the note to target tag (if not already associated)
+                if let targetNotes = targetTag.notes as? Set<Note>, !targetNotes.contains(note) {
+                    note.addToTags(targetTag)
+                }
+            }
+        }
+        
+        // Delete the source tag
+        context.delete(sourceTag)
+        
+        // Save changes
+        try context.save()
+        
+        logger.info("Successfully merged tag and moved \((sourceTag.notes as? Set<Note>)?.count ?? 0) note associations")
+    }
+    
+    /// Finds an existing tag with the same name (case-insensitive) excluding the specified tag
+    /// - Parameters:
+    ///   - name: The tag name to search for
+    ///   - excludeTag: The tag to exclude from the search (usually the tag being renamed)
+    ///   - context: The managed object context to use for the search
+    /// - Returns: The existing tag if found, nil otherwise
+    /// - Throws: Core Data errors if fetch fails
+    static func findExistingTag(named name: String, excluding excludeTag: Tag, in context: NSManagedObjectContext) throws -> Tag? {
+        let fetchRequest: NSFetchRequest<Tag> = Tag.fetchRequest()
+        let tagId = excludeTag.id ?? UUID()
+        fetchRequest.predicate = NSPredicate(format: "name ==[c] %@ AND id != %@", name, tagId as CVarArg)
+        
+        let results = try context.fetch(fetchRequest)
+        return results.first
+    }
 }

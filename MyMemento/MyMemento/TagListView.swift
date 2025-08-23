@@ -11,11 +11,15 @@ import CoreData
 struct TagListView: View {
     @Environment(\.managedObjectContext) private var viewContext
     @Environment(\.dismiss) private var dismiss
+    @StateObject private var errorManager = ErrorManager.shared
     
     @FetchRequest(
         sortDescriptors: [NSSortDescriptor(keyPath: \Tag.name, ascending: true)],
         animation: .default)
     private var tags: FetchedResults<Tag>
+    
+    @State private var tagToDelete: Tag?
+    @State private var showDeleteConfirmation = false
     
     var body: some View {
         NavigationStack {
@@ -47,6 +51,7 @@ struct TagListView: View {
                             .padding(.vertical, 4)
                         }
                     }
+                    .onDelete(perform: deleteTag)
                 }
             }
             .navigationTitle("Tags")
@@ -59,10 +64,66 @@ struct TagListView: View {
                 }
             }
         }
+        .alert("Delete Tag", isPresented: $showDeleteConfirmation) {
+            Button("Cancel", role: .cancel) { 
+                tagToDelete = nil
+            }
+            Button("Delete", role: .destructive) {
+                if let tag = tagToDelete {
+                    performDeleteTag(tag)
+                }
+                tagToDelete = nil
+            }
+        } message: {
+            if let tag = tagToDelete {
+                let noteCount = noteCount(for: tag)
+                let message = noteCount > 0 ? 
+                    "This will remove \"\(tag.name ?? "")\" from \(noteCount) note\(noteCount == 1 ? "" : "s")." : 
+                    "This will permanently delete the tag \"\(tag.name ?? "")\"."
+                Text(message)
+            }
+        }
+        .alert("Error", isPresented: $errorManager.showError) {
+            Button("OK") { }
+        } message: {
+            Text(errorManager.errorMessage)
+        }
     }
     
     private func noteCount(for tag: Tag) -> Int {
         return (tag.notes as? Set<Note>)?.count ?? 0
+    }
+    
+    private func deleteTag(at offsets: IndexSet) {
+        for index in offsets {
+            let tag = tags[index]
+            tagToDelete = tag
+            showDeleteConfirmation = true
+        }
+    }
+    
+    private func performDeleteTag(_ tag: Tag) {
+        do {
+            // Remove tag from all associated notes
+            if let associatedNotes = tag.notes as? Set<Note> {
+                for note in associatedNotes {
+                    note.removeFromTags(tag)
+                }
+            }
+            
+            // Delete the tag from Core Data
+            viewContext.delete(tag)
+            
+            // Save changes
+            try viewContext.save()
+            
+            // Force refresh to update UI displays
+            viewContext.refreshAllObjects()
+            
+        } catch {
+            let nsError = error as NSError
+            errorManager.handleCoreDataError(nsError, context: "Failed to delete tag")
+        }
     }
 }
 

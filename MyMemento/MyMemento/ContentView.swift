@@ -52,6 +52,18 @@ struct ContentView: View {
                             .onChange(of: searchText) { _, newValue in
                                 updateTagSuggestions(for: newValue)
                             }
+                            .overlay(
+                                HStack {
+                                    Spacer()
+                                    if !searchText.isEmpty {
+                                        Button(action: clearSearch) {
+                                            Image(systemName: "xmark.circle.fill")
+                                                .foregroundColor(.gray)
+                                        }
+                                        .padding(.trailing, 8)
+                                    }
+                                }
+                            )
                         
                         Button(action: performSearch) {
                             Image(systemName: "magnifyingglass")
@@ -162,6 +174,16 @@ struct ContentView: View {
         withAnimation {
             isDeleteMode.toggle()
         }
+    }
+    
+    private func clearSearch() {
+        searchText = ""
+        showTagSuggestions = false
+        tagSuggestions = []
+        justSelectedTag = false
+        lastSearchTextAfterSelection = ""
+        isSearching = false
+        filteredNotes = []
     }
     
     private func deleteNote(_ note: Note) {

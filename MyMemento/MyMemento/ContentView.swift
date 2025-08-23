@@ -20,6 +20,7 @@ struct ContentView: View {
     @State private var tagSuggestions: [String] = []
     @State private var justSelectedTag = false
     @State private var lastSearchTextAfterSelection = ""
+    @State private var sortByTitle = false
 
     @FetchRequest(
         sortDescriptors: [
@@ -30,10 +31,21 @@ struct ContentView: View {
     private var notes: FetchedResults<Note>
     
     private var displayedNotes: [Note] {
-        if isSearching {
-            return filteredNotes
+        let baseNotes = isSearching ? filteredNotes : Array(notes)
+        
+        if sortByTitle {
+            return baseNotes.sorted { note1, note2 in
+                // First sort by pinned status
+                if note1.isPinned != note2.isPinned {
+                    return note1.isPinned && !note2.isPinned
+                }
+                // Then sort by title
+                let title1 = note1.title ?? "Untitled"
+                let title2 = note2.title ?? "Untitled"
+                return title1.localizedCaseInsensitiveCompare(title2) == .orderedAscending
+            }
         } else {
-            return Array(notes)
+            return baseNotes
         }
     }
     
@@ -106,6 +118,33 @@ struct ContentView: View {
                 }
                 .padding(.horizontal)
                 .padding(.top, 8)
+                
+                // Sort options
+                HStack {
+                    Text("Sort by:")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                    
+                    Button(action: { sortByTitle = false }) {
+                        Text("created")
+                            .font(.subheadline)
+                            .foregroundColor(sortByTitle ? .secondary : .blue)
+                            .underline(!sortByTitle)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    
+                    Button(action: { sortByTitle = true }) {
+                        Text("title")
+                            .font(.subheadline)
+                            .foregroundColor(sortByTitle ? .blue : .secondary)
+                            .underline(sortByTitle)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    
+                    Spacer()
+                }
+                .padding(.horizontal)
+                .padding(.bottom, 8)
                 
                 List {
                     if displayedNotes.isEmpty {
@@ -326,7 +365,13 @@ struct ContentView: View {
                 if note1.isPinned != note2.isPinned {
                     return note1.isPinned && !note2.isPinned
                 }
-                return (note1.createdAt ?? Date()) > (note2.createdAt ?? Date())
+                if sortByTitle {
+                    let title1 = note1.title ?? "Untitled"
+                    let title2 = note2.title ?? "Untitled"
+                    return title1.localizedCaseInsensitiveCompare(title2) == .orderedAscending
+                } else {
+                    return (note1.createdAt ?? Date()) > (note2.createdAt ?? Date())
+                }
             }
         }
     }

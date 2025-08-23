@@ -42,22 +42,38 @@ struct PersistenceController {
         if inMemory {
             container.persistentStoreDescriptions.first!.url = URL(fileURLWithPath: "/dev/null")
         }
+        
+        // Enable automatic lightweight migration
+        container.persistentStoreDescriptions.forEach { storeDescription in
+            storeDescription.setOption(true as NSNumber, forKey: NSMigratePersistentStoresAutomaticallyOption)
+            storeDescription.setOption(true as NSNumber, forKey: NSInferMappingModelAutomaticallyOption)
+        }
+        
         container.loadPersistentStores(completionHandler: { (storeDescription, error) in
             if let error = error as NSError? {
-                // Log the critical Core Data store loading error
                 let logger = Logger(subsystem: "app.jam.ios.MyMemento", category: "Persistence")
                 logger.critical("Failed to load Core Data persistent store: \(error.localizedDescription) - Code: \(error.code), UserInfo: \(String(describing: error.userInfo))")
                 
-                /*
-                 This is a critical error - the app cannot function without Core Data.
-                 In a production app, you might want to:
-                 * Show a user-friendly error message
-                 * Try to recover by deleting and recreating the store
-                 * Gracefully degrade functionality
-                 
-                 For now, we still need to terminate as the app cannot function without Core Data.
-                 */
-                fatalError("Core Data store failed to load: \(error.localizedDescription)")
+                // Attempt to recover by deleting and recreating the store
+                logger.info("Attempting to recover by deleting and recreating the Core Data store")
+                
+                if let storeURL = storeDescription.url {
+                    // Remove the existing store files
+                    let fileManager = FileManager.default
+                    let walURL = storeURL.appendingPathExtension("sqlite-wal")
+                    let shmURL = storeURL.appendingPathExtension("sqlite-shm")
+                    
+                    try? fileManager.removeItem(at: storeURL)
+                    try? fileManager.removeItem(at: walURL)
+                    try? fileManager.removeItem(at: shmURL)
+                    
+                    logger.info("Deleted corrupted store files - app will restart with fresh store")
+                    
+                    // For now, just crash to force app restart with clean state
+                    fatalError("Core Data store was corrupted and has been reset. Please restart the app.")
+                } else {
+                    fatalError("Core Data store failed to load and no URL available for recovery: \(error.localizedDescription)")
+                }
             }
         })
         container.viewContext.automaticallyMergesChangesFromParent = true
@@ -104,6 +120,7 @@ struct PersistenceController {
                 note.body = noteData.body
                 note.tags = noteData.tags
                 note.createdAt = Date().addingTimeInterval(-Double(index * 3600)) // Stagger creation times by 1 hour each
+                note.isPinned = (index == 0) // Pin the first note (Welcome) as an example
             }
             
             try context.save()

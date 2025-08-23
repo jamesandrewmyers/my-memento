@@ -22,7 +22,10 @@ struct ContentView: View {
     @State private var lastSearchTextAfterSelection = ""
 
     @FetchRequest(
-        sortDescriptors: [NSSortDescriptor(keyPath: \Note.createdAt, ascending: false)],
+        sortDescriptors: [
+            NSSortDescriptor(keyPath: \Note.isPinned, ascending: false),
+            NSSortDescriptor(keyPath: \Note.createdAt, ascending: false)
+        ],
         animation: .default)
     private var notes: FetchedResults<Note>
     
@@ -125,9 +128,17 @@ struct ContentView: View {
                                 
                                 NavigationLink(value: note) {
                                     VStack(alignment: .leading, spacing: 4) {
-                                        Text(note.title ?? "Untitled")
-                                            .font(.headline)
-                                            .foregroundColor(.primary)
+                                        HStack {
+                                            if note.isPinned {
+                                                Image(systemName: "pin.fill")
+                                                    .foregroundColor(.orange)
+                                                    .font(.caption)
+                                            }
+                                            Text(note.title ?? "Untitled")
+                                                .font(.headline)
+                                                .foregroundColor(.primary)
+                                            Spacer()
+                                        }
                                         
                                         if let tags = note.tags, !tags.isEmpty {
                                             Text(tags)
@@ -138,6 +149,15 @@ struct ContentView: View {
                                     .padding(.vertical, 2)
                                 }
                                 .disabled(isDeleteMode)
+                                
+                                if !isDeleteMode {
+                                    Button(action: { togglePin(for: note) }) {
+                                        Image(systemName: note.isPinned ? "pin.slash" : "pin")
+                                            .foregroundColor(note.isPinned ? .orange : .gray)
+                                            .font(.title3)
+                                    }
+                                    .buttonStyle(PlainButtonStyle())
+                                }
                             }
                         }
                         .onDelete(perform: isDeleteMode ? nil : deleteNotes)
@@ -184,6 +204,20 @@ struct ContentView: View {
         lastSearchTextAfterSelection = ""
         isSearching = false
         filteredNotes = []
+    }
+    
+    private func togglePin(for note: Note) {
+        withAnimation {
+            note.isPinned.toggle()
+            
+            do {
+                try viewContext.save()
+                SyncService.shared.upload(notes: Array(notes))
+            } catch {
+                let nsError = error as NSError
+                errorManager.handleCoreDataError(nsError, context: "Failed to update note pin status")
+            }
+        }
     }
     
     private func deleteNote(_ note: Note) {
@@ -288,6 +322,11 @@ struct ContentView: View {
                     print("tags contains")
                 }
                 return titleContains || bodyContains || tagsContains;
+            }.sorted { note1, note2 in
+                if note1.isPinned != note2.isPinned {
+                    return note1.isPinned && !note2.isPinned
+                }
+                return (note1.createdAt ?? Date()) > (note2.createdAt ?? Date())
             }
         }
     }
@@ -299,6 +338,7 @@ struct ContentView: View {
         note.body = ""
         note.tags = ""
         note.createdAt = Date()
+        note.isPinned = false
 
         do {
             try viewContext.save()

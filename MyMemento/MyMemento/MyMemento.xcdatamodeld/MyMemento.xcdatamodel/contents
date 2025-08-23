@@ -6,6 +6,7 @@
         <attribute name="body" optional="NO" attributeType="String"/>
         <attribute name="tags" optional="NO" attributeType="String"/>
         <attribute name="createdAt" optional="NO" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="isPinned" optional="NO" attributeType="Boolean" defaultValue="NO" usesScalarValueType="YES"/>
     </entity>
     <elements>
         <element name="Note" positionX="-63" positionY="-18" width="128" height="118"/>

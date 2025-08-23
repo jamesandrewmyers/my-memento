@@ -48,6 +48,13 @@ struct NoteEditView: View {
                 }
             }
             
+            ToolbarItem(placement: .principal) {
+                Button(action: togglePin) {
+                    Image(systemName: note.isPinned ? "pin.slash" : "pin")
+                        .foregroundColor(note.isPinned ? .orange : .gray)
+                }
+            }
+            
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button("Save") {
                     saveNote()
@@ -82,6 +89,18 @@ struct NoteEditView: View {
         } catch {
             let nsError = error as NSError
             errorManager.handleCoreDataError(nsError, context: "Failed to save note")
+        }
+    }
+    
+    private func togglePin() {
+        note.isPinned.toggle()
+        
+        do {
+            try viewContext.save()
+            SyncService.shared.upload(notes: Array(allNotes))
+        } catch {
+            let nsError = error as NSError
+            errorManager.handleCoreDataError(nsError, context: "Failed to update note pin status")
         }
     }
 }

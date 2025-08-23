@@ -50,11 +50,16 @@ struct ContentView: View {
     }
     
     private var allTags: [String] {
-        let tagStrings = notes.compactMap { $0.tags }
-        let individualTags = tagStrings.flatMap { tagString in
-            tagString.split(separator: " ").map { String($0) }
+        let allTagSets = notes.compactMap { $0.tags as? Set<Tag> }
+        let allTagNames = allTagSets.flatMap { tagSet in
+            tagSet.compactMap { $0.name }
         }
-        return Array(Set(individualTags)).sorted()
+        return Array(Set(allTagNames)).sorted()
+    }
+    
+    private func tagsToString(_ tagSet: NSSet?) -> String {
+        guard let tagSet = tagSet as? Set<Tag> else { return "" }
+        return tagSet.compactMap { $0.name }.sorted().joined(separator: ", ")
     }
 
     var body: some View {
@@ -177,8 +182,9 @@ struct ContentView: View {
                                             Spacer()
                                         }
                                         
-                                        if let tags = note.tags, !tags.isEmpty {
-                                            Text(tags)
+                                        let tagString = tagsToString(note.tags)
+                                        if !tagString.isEmpty {
+                                            Text(tagString)
                                                 .font(.subheadline)
                                                 .foregroundColor(.secondary)
                                         }
@@ -347,7 +353,7 @@ struct ContentView: View {
                 let bodyContains = (note.body ?? "").localizedCaseInsensitiveContains(trimmedSearchText)
                 var tagsContains = false;
                 if trimmedSearchText.hasPrefix("#") {
-                    tagsContains = (note.tags ?? "").localizedCaseInsensitiveContains(trimmedSearchText.dropFirst())
+                    tagsContains = tagsToString(note.tags).localizedCaseInsensitiveContains(trimmedSearchText.dropFirst())
                 }
                 if titleContains {
                     print("title contains")
@@ -379,7 +385,7 @@ struct ContentView: View {
         note.id = UUID()
         note.title = "New Note"
         note.body = ""
-        note.tags = ""
+        // Tags will be empty NSSet by default
         note.createdAt = Date()
         note.isPinned = false
 

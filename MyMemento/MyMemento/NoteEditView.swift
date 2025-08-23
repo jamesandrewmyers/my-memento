@@ -73,13 +73,55 @@ struct NoteEditView: View {
     
     private func loadNoteData() {
         title = note.title ?? ""
-        tags = note.tags ?? ""
+        tags = tagsToString(note.tags)
         noteBody = note.body ?? ""
+    }
+    
+    private func tagsToString(_ tagSet: NSSet?) -> String {
+        guard let tagSet = tagSet as? Set<Tag> else { return "" }
+        return tagSet.compactMap { $0.name }.sorted().joined(separator: ", ")
+    }
+    
+    private func stringToTags(_ tagString: String) -> Set<Tag> {
+        let tagNames = tagString.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        var tagSet = Set<Tag>()
+        
+        for tagName in tagNames {
+            if !tagName.isEmpty {
+                // Try to find existing tag
+                let fetchRequest: NSFetchRequest<Tag> = Tag.fetchRequest()
+                fetchRequest.predicate = NSPredicate(format: "name == %@", tagName)
+                
+                let existingTag = try? viewContext.fetch(fetchRequest).first
+                
+                if let existingTag = existingTag {
+                    tagSet.insert(existingTag)
+                } else {
+                    // Create new tag
+                    let newTag = Tag(context: viewContext)
+                    newTag.id = UUID()
+                    newTag.name = tagName
+                    newTag.createdAt = Date()
+                    tagSet.insert(newTag)
+                }
+            }
+        }
+        
+        return tagSet
     }
     
     private func saveNote() {
         note.title = title
-        note.tags = tags
+        
+        // Clear existing tags
+        note.removeFromTags(note.tags ?? NSSet())
+        
+        // Add new tags
+        let newTags = stringToTags(tags)
+        for tag in newTags {
+            note.addToTags(tag)
+        }
+        
         note.body = noteBody
         
         do {

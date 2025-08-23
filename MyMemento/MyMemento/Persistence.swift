@@ -15,13 +15,26 @@ struct PersistenceController {
     static let preview: PersistenceController = {
         let result = PersistenceController(inMemory: true)
         let viewContext = result.container.viewContext
+        
+        // Create sample tags
+        let sampleTag = Tag(context: viewContext)
+        sampleTag.id = UUID()
+        sampleTag.name = "sample"
+        sampleTag.createdAt = Date()
+        
+        let noteTag = Tag(context: viewContext)
+        noteTag.id = UUID()
+        noteTag.name = "note"
+        noteTag.createdAt = Date()
+        
         for i in 0..<10 {
             let newNote = Note(context: viewContext)
             newNote.id = UUID()
             newNote.title = "Sample Note \(i + 1)"
             newNote.body = "This is the body of sample note \(i + 1)"
-            newNote.tags = "sample,note"
             newNote.createdAt = Date()
+            newNote.addToTags(sampleTag)
+            newNote.addToTags(noteTag)
         }
         do {
             try viewContext.save()
@@ -98,19 +111,60 @@ struct PersistenceController {
             let logger = Logger(subsystem: "app.jam.ios.MyMemento", category: "Persistence")
             logger.info("DEBUG_MODE: Creating example notes for empty storage")
             
+            // Create example tags first
+            let welcomeTag = Tag(context: context)
+            welcomeTag.id = UUID()
+            welcomeTag.name = "welcome"
+            welcomeTag.createdAt = Date()
+            
+            let gettingStartedTag = Tag(context: context)
+            gettingStartedTag.id = UUID()
+            gettingStartedTag.name = "getting-started"
+            gettingStartedTag.createdAt = Date()
+            
+            let workTag = Tag(context: context)
+            workTag.id = UUID()
+            workTag.name = "work"
+            workTag.createdAt = Date()
+            
+            let meetingsTag = Tag(context: context)
+            meetingsTag.id = UUID()
+            meetingsTag.name = "meetings"
+            meetingsTag.createdAt = Date()
+            
+            let projectAlphaTag = Tag(context: context)
+            projectAlphaTag.id = UUID()
+            projectAlphaTag.name = "project-alpha"
+            projectAlphaTag.createdAt = Date()
+            
+            let creativeTag = Tag(context: context)
+            creativeTag.id = UUID()
+            creativeTag.name = "creative"
+            creativeTag.createdAt = Date()
+            
+            let writingTag = Tag(context: context)
+            writingTag.id = UUID()
+            writingTag.name = "writing"
+            writingTag.createdAt = Date()
+            
+            let ideasTag = Tag(context: context)
+            ideasTag.id = UUID()
+            ideasTag.name = "ideas"
+            ideasTag.createdAt = Date()
+            
             // Create 3 example notes with different content
             let exampleNotes = [
                 (title: "Welcome to MyMemento", 
                  body: "This is your personal note-taking app. You can create, edit, and organize your thoughts here. Use tags to categorize your notes and search to find them quickly.",
-                 tags: "welcome,getting-started"),
+                 tags: [welcomeTag, gettingStartedTag]),
                  
                 (title: "Meeting Notes - Project Alpha", 
                  body: "Discussed the new features for Q4:\n• Implement user authentication\n• Add export functionality\n• Improve search capabilities\n\nNext meeting: Friday 2PM",
-                 tags: "work,meetings,project-alpha"),
+                 tags: [workTag, meetingsTag, projectAlphaTag]),
                  
                 (title: "Book Ideas", 
                  body: "Random thoughts for the novel I want to write:\n\n- Character: A detective who can see memories\n- Setting: Near-future cyberpunk city\n- Plot twist: The memories aren't real\n\nNeed to research: Memory implantation technology",
-                 tags: "creative,writing,ideas")
+                 tags: [creativeTag, writingTag, ideasTag])
             ]
             
             for (index, noteData) in exampleNotes.enumerated() {
@@ -118,9 +172,13 @@ struct PersistenceController {
                 note.id = UUID()
                 note.title = noteData.title
                 note.body = noteData.body
-                note.tags = noteData.tags
                 note.createdAt = Date().addingTimeInterval(-Double(index * 3600)) // Stagger creation times by 1 hour each
                 note.isPinned = (index == 0) // Pin the first note (Welcome) as an example
+                
+                // Add tags to the note
+                for tag in noteData.tags {
+                    note.addToTags(tag)
+                }
             }
             
             try context.save()

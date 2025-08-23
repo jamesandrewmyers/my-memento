@@ -21,6 +21,7 @@ struct ContentView: View {
     @State private var justSelectedTag = false
     @State private var lastSearchTextAfterSelection = ""
     @State private var sortByTitle = false
+    @State private var showTagList = false
 
     @FetchRequest(
         sortDescriptors: [
@@ -212,6 +213,13 @@ struct ContentView: View {
                 NoteEditView(note: note)
             }
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: { showTagList = true }) {
+                        Image(systemName: "tag")
+                            .foregroundColor(.primary)
+                    }
+                }
+                
                 ToolbarItem(placement: .navigationBarTrailing) {
                     HStack {
                         Button(action: toggleDeleteMode) {
@@ -224,6 +232,9 @@ struct ContentView: View {
                         }
                     }
                 }
+            }
+            .sheet(isPresented: $showTagList) {
+                TagListView()
             }
             .alert("Error", isPresented: $errorManager.showError) {
                 Button("OK") { }

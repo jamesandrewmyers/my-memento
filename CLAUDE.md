@@ -6,7 +6,7 @@ This file provides guidance to you when working with code in this repository.
 
 MyMemento is an offline-first iOS note-taking app built with SwiftUI and Core Data:
 
-- **Core Data Model**: Single `Note` entity with id (UUID), title, body, tags (string), and createdAt (Date)
+- **Core Data Model**: `Note` entity with id (UUID), title, body, createdAt (Date), isPinned (Bool), and many-to-many relationship to `Tag` entity. `Tag` entity with id (UUID), name, and createdAt (Date)
 - **SwiftUI Views**: 
   - `ContentView`: Main notes list with add/delete functionality
   - `NoteEditView`: Individual note editing interface

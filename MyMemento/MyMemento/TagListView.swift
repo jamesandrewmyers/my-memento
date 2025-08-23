@@ -68,7 +68,11 @@ struct TagListView: View {
 
 struct TaggedNotesView: View {
     @Environment(\.managedObjectContext) private var viewContext
+    @StateObject private var errorManager = ErrorManager.shared
     let tag: Tag
+    
+    @State private var isEditingTitle = false
+    @State private var editedTagName = ""
     
     private var notes: [Note] {
         guard let noteSet = tag.notes as? Set<Note> else { return [] }
@@ -123,8 +127,105 @@ struct TaggedNotesView: View {
                 }
             }
         }
-        .navigationTitle(tag.name ?? "Tagged Notes")
-        .navigationBarTitleDisplayMode(.large)
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                if isEditingTitle {
+                    TextField("Tag name", text: $editedTagName, onCommit: saveTagName)
+                        .font(.headline)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .onAppear {
+                            editedTagName = tag.name ?? ""
+                        }
+                } else {
+                    Button(action: startEditing) {
+                        HStack {
+                            Text(tag.name ?? "Tagged Notes")
+                                .font(.headline)
+                                .foregroundColor(.primary)
+                            Image(systemName: "pencil")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+            }
+            
+            if isEditingTitle {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    HStack {
+                        Button("Cancel") {
+                            cancelEditing()
+                        }
+                        .foregroundColor(.secondary)
+                        
+                        Button("Save") {
+                            saveTagName()
+                        }
+                        .fontWeight(.semibold)
+                    }
+                }
+            }
+        }
+        .alert("Error", isPresented: $errorManager.showError) {
+            Button("OK") { }
+        } message: {
+            Text(errorManager.errorMessage)
+        }
+    }
+    
+    private func startEditing() {
+        isEditingTitle = true
+        editedTagName = tag.name ?? ""
+    }
+    
+    private func cancelEditing() {
+        isEditingTitle = false
+        editedTagName = ""
+    }
+    
+    private func saveTagName() {
+        let trimmedName = editedTagName.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Validate tag name
+        guard !trimmedName.isEmpty else {
+            errorManager.handleCoreDataError(
+                NSError(domain: "TagEdit", code: 1, userInfo: [NSLocalizedDescriptionKey: "Tag name cannot be empty"]),
+                context: "Tag name validation failed"
+            )
+            return
+        }
+        
+        // Check if tag name already exists (excluding current tag)
+        let fetchRequest: NSFetchRequest<Tag> = Tag.fetchRequest()
+        let tagId = tag.id ?? UUID()
+        fetchRequest.predicate = NSPredicate(format: "name == %@ AND id != %@", trimmedName, tagId as CVarArg)
+        
+        do {
+            let existingTags = try viewContext.fetch(fetchRequest)
+            if !existingTags.isEmpty {
+                errorManager.handleCoreDataError(
+                    NSError(domain: "TagEdit", code: 2, userInfo: [NSLocalizedDescriptionKey: "A tag with this name already exists"]),
+                    context: "Tag name validation failed"
+                )
+                return
+            }
+            
+            // Save the new tag name
+            tag.name = trimmedName
+            try viewContext.save()
+            
+            // Force refresh of all objects to update UI displays
+            viewContext.refreshAllObjects()
+            
+            isEditingTitle = false
+            editedTagName = ""
+            
+        } catch {
+            let nsError = error as NSError
+            errorManager.handleCoreDataError(nsError, context: "Failed to update tag name")
+        }
     }
     
     private func tagsToString(_ tagSet: NSSet?) -> String {

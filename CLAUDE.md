@@ -36,6 +36,51 @@ cd MyMemento && xcodebuild test -scheme MyMemento -destination 'platform=iOS Sim
 - `MyMemento/MyMementoUITests/` - UI tests
 - Core Data model: `MyMemento.xcdatamodeld`
 
+## Core Data Model Guidelines
+
+### Adding Inverse Relationships to Core Data Model
+
+When manually editing the Core Data model XML file (`MyMemento.xcdatamodeld/MyMemento.xcdatamodel/contents`) to add inverse relationships, follow this exact process:
+
+1. **Update model metadata** to current tool versions:
+   ```xml
+   <model type="com.apple.IDECoreDataModeler.DataModel" 
+          documentVersion="1.0" 
+          lastSavedToolsVersion="23788.4" 
+          systemVersion="24G84" 
+          minimumToolsVersion="Automatic" 
+          sourceLanguage="Swift" 
+          userDefinedModelVersionIdentifier="">
+   ```
+
+2. **Simplify attribute declarations** by removing unnecessary optional/scalar specifications:
+   ```xml
+   <!-- WRONG (overly complex) -->
+   <attribute name="body" optional="NO" attributeType="String"/>
+   <attribute name="createdAt" optional="NO" attributeType="Date" usesScalarValueType="NO"/>
+   
+   <!-- CORRECT (simplified) -->
+   <attribute name="body" attributeType="String"/>
+   <attribute name="createdAt" attributeType="Date" usesScalarValueType="NO"/>
+   ```
+
+3. **Add complete inverse relationship specifications** with BOTH required attributes:
+   ```xml
+   <!-- Note entity relationship -->
+   <relationship name="tags" optional="YES" toMany="YES" deletionRule="Nullify" 
+                destinationEntity="Tag" inverseName="notes" inverseEntity="Tag"/>
+   
+   <!-- Tag entity relationship -->
+   <relationship name="notes" optional="YES" toMany="YES" deletionRule="Nullify" 
+                destinationEntity="Note" inverseName="tags" inverseEntity="Note"/>
+   ```
+
+4. **Remove `<elements>` positioning section** entirely to avoid conflicts.
+
+5. **Critical**: NEVER add only `inverseName` without `inverseEntity` - this will cause Xcode crashes with "relationship's inverse must be both named and charged to an entity" errors.
+
+6. **Clear derived data** after model changes: `rm -rf ~/Library/Developer/Xcode/DerivedData`
+
 ## Development Guidelines
 
 I give you permission to run any and all docker commands you see fit.

@@ -7,6 +7,7 @@
 
 import CoreData
 import OSLog
+import UIKit
 
 struct PersistenceController {
     static let shared = PersistenceController()
@@ -31,7 +32,11 @@ struct PersistenceController {
             let newNote = Note(context: viewContext)
             newNote.id = UUID()
             newNote.title = "Sample Note \(i + 1)"
-            newNote.richText = NSAttributedString(string: "This is the body of sample note \(i + 1)")
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 16),
+                .foregroundColor: UIColor.label
+            ]
+            newNote.richText = NSAttributedString(string: "This is the body of sample note \(i + 1)", attributes: attributes)
             newNote.createdAt = Date()
             newNote.addToTags(sampleTag)
             newNote.addToTags(noteTag)
@@ -171,7 +176,11 @@ struct PersistenceController {
                 let note = Note(context: context)
                 note.id = UUID()
                 note.title = noteData.title
-                note.richText = NSAttributedString(string: noteData.body)
+                let attributes: [NSAttributedString.Key: Any] = [
+                    .font: UIFont.systemFont(ofSize: 16),
+                    .foregroundColor: UIColor.label
+                ]
+                note.richText = NSAttributedString(string: noteData.body, attributes: attributes)
                 note.createdAt = Date().addingTimeInterval(-Double(index * 3600)) // Stagger creation times by 1 hour each
                 note.isPinned = (index == 0) // Pin the first note (Welcome) as an example
                 

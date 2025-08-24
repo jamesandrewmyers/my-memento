@@ -210,7 +210,7 @@ extension NoteEditView {
     }
 
     private var formattingBar: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 8) {
             Button(action: {
                 if #available(iOS 15.0, *) {
                     editorCoordinator?.toggleBold()
@@ -220,8 +220,7 @@ extension NoteEditView {
                     .imageScale(.medium)
                     .accessibilityLabel("Bold")
             }
-            .buttonStyle(PlainButtonStyle())
-            .foregroundColor(isBold ? .blue : .secondary)
+            .buttonStyle(FormattingButtonStyle(isActive: isBold))
 
             Button(action: {
                 if #available(iOS 15.0, *) {
@@ -232,8 +231,7 @@ extension NoteEditView {
                     .imageScale(.medium)
                     .accessibilityLabel("Italic")
             }
-            .buttonStyle(PlainButtonStyle())
-            .foregroundColor(isItalic ? .blue : .secondary)
+            .buttonStyle(FormattingButtonStyle(isActive: isItalic))
 
             Button(action: {
                 if #available(iOS 15.0, *) {
@@ -244,9 +242,84 @@ extension NoteEditView {
                     .imageScale(.medium)
                     .accessibilityLabel("Underline")
             }
-            .buttonStyle(PlainButtonStyle())
-            .foregroundColor(isUnderlined ? .blue : .secondary)
+            .buttonStyle(FormattingButtonStyle(isActive: isUnderlined))
         }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 2)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(UIColor.systemGray6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(Color.gray.opacity(0.2), lineWidth: 1)
+                )
+        )
+    }
+}
+
+// MARK: - Custom Button Styles
+
+struct FormattingButtonStyle: ButtonStyle {
+    let isActive: Bool
+    
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 16, weight: .medium))
+            .foregroundColor(isActive ? .primary : .secondary)
+            .frame(width: 32, height: 32)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(backgroundColor(isActive: isActive, isPressed: configuration.isPressed))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .strokeBorder(borderColor(isActive: isActive, isPressed: configuration.isPressed), lineWidth: 1)
+                    )
+                    .shadow(
+                        color: shadowColor(isActive: isActive, isPressed: configuration.isPressed),
+                        radius: shadowRadius(isActive: isActive, isPressed: configuration.isPressed),
+                        x: 0,
+                        y: shadowOffset(isActive: isActive, isPressed: configuration.isPressed)
+                    )
+            )
+            .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
+            .animation(.easeInOut(duration: 0.1), value: configuration.isPressed)
+            .animation(.easeInOut(duration: 0.15), value: isActive)
+    }
+    
+    private func backgroundColor(isActive: Bool, isPressed: Bool) -> Color {
+        if isPressed {
+            return isActive ? Color.blue.opacity(0.2) : Color.gray.opacity(0.15)
+        } else if isActive {
+            return Color.blue.opacity(0.15)
+        } else {
+            return Color(UIColor.systemBackground)
+        }
+    }
+    
+    private func borderColor(isActive: Bool, isPressed: Bool) -> Color {
+        if isPressed {
+            return isActive ? Color.blue.opacity(0.4) : Color.gray.opacity(0.4)
+        } else if isActive {
+            return Color.blue.opacity(0.3)
+        } else {
+            return Color.gray.opacity(0.3)
+        }
+    }
+    
+    private func shadowColor(isActive: Bool, isPressed: Bool) -> Color {
+        if isPressed {
+            return Color.clear
+        } else {
+            return Color.black.opacity(0.1)
+        }
+    }
+    
+    private func shadowRadius(isActive: Bool, isPressed: Bool) -> CGFloat {
+        return isPressed ? 0 : 1
+    }
+    
+    private func shadowOffset(isActive: Bool, isPressed: Bool) -> CGFloat {
+        return isPressed ? 0 : 1
     }
 }
 

@@ -23,6 +23,7 @@ struct NoteEditView: View {
     @State private var title: String = ""
     @State private var tags: String = ""
     @State private var noteBody: NSAttributedString = NSAttributedString()
+    @State private var editorCoordinator: RichTextEditor.Coordinator?
     
     var body: some View {
         Form {
@@ -36,8 +37,11 @@ struct NoteEditView: View {
             
             Section(header: contentHeader) {
                 if #available(iOS 15.0, *) {
-                    RichTextEditor(attributedText: $noteBody)
-                        .frame(minHeight: 200)
+                    RichTextEditorWrapper(
+                        attributedText: $noteBody,
+                        coordinator: $editorCoordinator
+                    )
+                    .frame(minHeight: 200)
                 } else {
                     Text("Rich text editor requires iOS 15.0+")
                 }
@@ -201,7 +205,11 @@ extension NoteEditView {
 
     private var formattingBar: some View {
         HStack(spacing: 16) {
-            Button(action: {}) {
+            Button(action: {
+                if #available(iOS 15.0, *) {
+                    editorCoordinator?.toggleBold()
+                }
+            }) {
                 Image(systemName: "bold")
                     .imageScale(.medium)
                     .accessibilityLabel("Bold")
@@ -209,7 +217,11 @@ extension NoteEditView {
             .buttonStyle(PlainButtonStyle())
             .foregroundColor(.secondary)
 
-            Button(action: {}) {
+            Button(action: {
+                if #available(iOS 15.0, *) {
+                    editorCoordinator?.toggleItalic()
+                }
+            }) {
                 Image(systemName: "italic")
                     .imageScale(.medium)
                     .accessibilityLabel("Italic")
@@ -217,13 +229,54 @@ extension NoteEditView {
             .buttonStyle(PlainButtonStyle())
             .foregroundColor(.secondary)
 
-            Button(action: {}) {
+            Button(action: {
+                if #available(iOS 15.0, *) {
+                    editorCoordinator?.toggleUnderline()
+                }
+            }) {
                 Image(systemName: "underline")
                     .imageScale(.medium)
                     .accessibilityLabel("Underline")
             }
             .buttonStyle(PlainButtonStyle())
             .foregroundColor(.secondary)
+        }
+    }
+}
+
+// MARK: - RichTextEditorWrapper
+
+@available(iOS 15.0, *)
+struct RichTextEditorWrapper: UIViewRepresentable {
+    @Binding var attributedText: NSAttributedString
+    @Binding var coordinator: RichTextEditor.Coordinator?
+    
+    func makeCoordinator() -> RichTextEditor.Coordinator {
+        let coord = RichTextEditor.Coordinator()
+        DispatchQueue.main.async {
+            coordinator = coord
+        }
+        return coord
+    }
+    
+    func makeUIView(context: Context) -> RichTextEditorView {
+        let editorView = RichTextEditorView()
+        editorView.onTextChange = { newAttributedText in
+            DispatchQueue.main.async {
+                attributedText = newAttributedText
+            }
+        }
+        
+        // Store reference in coordinator for formatting methods
+        context.coordinator.editorView = editorView
+        
+        return editorView
+    }
+    
+    func updateUIView(_ uiView: RichTextEditorView, context: Context) {
+        let currentText = uiView.getAttributedText()
+        if !currentText.isEqual(to: attributedText) {
+            uiView.setAttributedText(attributedText)
         }
     }
 }

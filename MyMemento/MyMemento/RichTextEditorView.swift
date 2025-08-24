@@ -16,6 +16,141 @@ class RichTextEditorView: UIView {
     
     var onTextChange: ((NSAttributedString) -> Void)?
     
+    // MARK: - Formatting Methods
+    
+    func toggleBold() {
+        guard let textView = textView else { return }
+        
+        let selectedRange = textView.selectedRange
+        if selectedRange.length > 0 {
+            // Text is selected - apply/remove bold to selection
+            toggleAttribute(.font, trait: .traitBold, range: selectedRange)
+        } else {
+            // No selection - set typing attributes
+            toggleTypingAttribute(.font, trait: .traitBold)
+        }
+    }
+    
+    func toggleItalic() {
+        guard let textView = textView else { return }
+        
+        let selectedRange = textView.selectedRange
+        if selectedRange.length > 0 {
+            // Text is selected - apply/remove italic to selection
+            toggleAttribute(.font, trait: .traitItalic, range: selectedRange)
+        } else {
+            // No selection - set typing attributes
+            toggleTypingAttribute(.font, trait: .traitItalic)
+        }
+    }
+    
+    func toggleUnderline() {
+        guard let textView = textView else { return }
+        
+        let selectedRange = textView.selectedRange
+        if selectedRange.length > 0 {
+            // Text is selected - apply/remove underline to selection
+            let mutableText = NSMutableAttributedString(attributedString: textView.attributedText)
+            
+            // Check if underline is already applied
+            var hasUnderline = false
+            mutableText.enumerateAttribute(.underlineStyle, in: selectedRange) { value, _, _ in
+                if let underlineValue = value as? Int, underlineValue != 0 {
+                    hasUnderline = true
+                }
+            }
+            
+            // Toggle underline
+            if hasUnderline {
+                mutableText.removeAttribute(.underlineStyle, range: selectedRange)
+            } else {
+                mutableText.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: selectedRange)
+            }
+            
+            textView.attributedText = mutableText
+            onTextChange?(mutableText)
+        } else {
+            // No selection - set typing attributes
+            var typingAttributes = textView.typingAttributes
+            
+            // Check current underline state
+            let currentUnderline = typingAttributes[.underlineStyle] as? Int
+            let hasUnderline = currentUnderline != nil && currentUnderline != 0
+            
+            if hasUnderline {
+                typingAttributes.removeValue(forKey: .underlineStyle)
+            } else {
+                typingAttributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
+            }
+            
+            textView.typingAttributes = typingAttributes
+        }
+    }
+    
+    private func toggleAttribute(_ attribute: NSAttributedString.Key, trait: UIFontDescriptor.SymbolicTraits, range: NSRange) {
+        let mutableText = NSMutableAttributedString(attributedString: textView.attributedText)
+        
+        // Check if the trait is already applied to the entire selection
+        var hasTraitApplied = true
+        mutableText.enumerateAttribute(attribute, in: range) { value, _, _ in
+            if let font = value as? UIFont {
+                if !font.fontDescriptor.symbolicTraits.contains(trait) {
+                    hasTraitApplied = false
+                }
+            } else {
+                hasTraitApplied = false
+            }
+        }
+        
+        // Apply or remove the trait
+        mutableText.enumerateAttribute(attribute, in: range) { value, subRange, _ in
+            let currentFont = (value as? UIFont) ?? defaultFont
+            let newFont: UIFont
+            
+            if hasTraitApplied {
+                // Remove the trait
+                newFont = fontByTogglingTrait(currentFont, trait: trait, add: false)
+            } else {
+                // Add the trait
+                newFont = fontByTogglingTrait(currentFont, trait: trait, add: true)
+            }
+            
+            mutableText.addAttribute(.font, value: newFont, range: subRange)
+        }
+        
+        textView.attributedText = mutableText
+        onTextChange?(mutableText)
+    }
+    
+    private func toggleTypingAttribute(_ attribute: NSAttributedString.Key, trait: UIFontDescriptor.SymbolicTraits) {
+        var typingAttributes = textView.typingAttributes
+        
+        let currentFont = (typingAttributes[attribute] as? UIFont) ?? defaultFont
+        let hasTrait = currentFont.fontDescriptor.symbolicTraits.contains(trait)
+        
+        let newFont = fontByTogglingTrait(currentFont, trait: trait, add: !hasTrait)
+        typingAttributes[attribute] = newFont
+        
+        textView.typingAttributes = typingAttributes
+    }
+    
+    private func fontByTogglingTrait(_ font: UIFont, trait: UIFontDescriptor.SymbolicTraits, add: Bool) -> UIFont {
+        let descriptor = font.fontDescriptor
+        var traits = descriptor.symbolicTraits
+        
+        if add {
+            traits.insert(trait)
+        } else {
+            traits.remove(trait)
+        }
+        
+        if let newDescriptor = descriptor.withSymbolicTraits(traits) {
+            return UIFont(descriptor: newDescriptor, size: font.pointSize)
+        }
+        
+        return font
+    }
+    
     // MARK: - Initialization
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -129,6 +264,28 @@ extension RichTextEditorView: UITextViewDelegate {
 struct RichTextEditor: UIViewRepresentable {
     @Binding var attributedText: NSAttributedString
     
+    private let coordinator = Coordinator()
+    
+    class Coordinator {
+        var editorView: RichTextEditorView?
+        
+        func toggleBold() {
+            editorView?.toggleBold()
+        }
+        
+        func toggleItalic() {
+            editorView?.toggleItalic()
+        }
+        
+        func toggleUnderline() {
+            editorView?.toggleUnderline()
+        }
+    }
+    
+    func makeCoordinator() -> Coordinator {
+        return coordinator
+    }
+    
     func makeUIView(context: Context) -> RichTextEditorView {
         let editorView = RichTextEditorView()
         editorView.onTextChange = { newAttributedText in
@@ -136,6 +293,10 @@ struct RichTextEditor: UIViewRepresentable {
                 attributedText = newAttributedText
             }
         }
+        
+        // Store reference in coordinator for formatting methods
+        coordinator.editorView = editorView
+        
         return editorView
     }
     
@@ -144,5 +305,19 @@ struct RichTextEditor: UIViewRepresentable {
         if !currentText.isEqual(to: attributedText) {
             uiView.setAttributedText(attributedText)
         }
+    }
+    
+    // MARK: - Formatting Methods
+    
+    func toggleBold() {
+        coordinator.toggleBold()
+    }
+    
+    func toggleItalic() {
+        coordinator.toggleItalic()
+    }
+    
+    func toggleUnderline() {
+        coordinator.toggleUnderline()
     }
 }

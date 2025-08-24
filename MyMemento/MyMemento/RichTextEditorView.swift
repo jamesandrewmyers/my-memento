@@ -54,6 +54,7 @@ class RichTextEditorView: UIView {
         if selectedRange.length > 0 {
             // Text is selected - apply/remove underline to selection
             let mutableText = NSMutableAttributedString(attributedString: textView.attributedText)
+            let originalSelection = selectedRange // Preserve selection
             
             // Check if underline is already applied
             var hasUnderline = false
@@ -72,6 +73,11 @@ class RichTextEditorView: UIView {
             
             textView.attributedText = mutableText
             onTextChange?(mutableText)
+            
+            // Restore selection after a brief delay to ensure the text view has updated
+            DispatchQueue.main.async {
+                self.textView.selectedRange = originalSelection
+            }
         } else {
             // No selection - set typing attributes
             var typingAttributes = textView.typingAttributes
@@ -93,6 +99,7 @@ class RichTextEditorView: UIView {
     
     private func toggleAttribute(_ attribute: NSAttributedString.Key, trait: UIFontDescriptor.SymbolicTraits, range: NSRange) {
         let mutableText = NSMutableAttributedString(attributedString: textView.attributedText)
+        let selectedRange = textView.selectedRange // Preserve selection
         
         // Check if the trait is already applied to the entire selection
         var hasTraitApplied = true
@@ -124,6 +131,11 @@ class RichTextEditorView: UIView {
         
         textView.attributedText = mutableText
         onTextChange?(mutableText)
+        
+        // Restore selection after a brief delay to ensure the text view has updated
+        DispatchQueue.main.async {
+            self.textView.selectedRange = selectedRange
+        }
     }
     
     private func toggleTypingAttribute(_ attribute: NSAttributedString.Key, trait: UIFontDescriptor.SymbolicTraits) {

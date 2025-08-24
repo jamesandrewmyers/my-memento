@@ -134,6 +134,13 @@ tramp
 # Backup files
 *.bak
 *.tmp
+
+# Tooling (Codex/Serena)
+.codex/
+.serena/
+.serena.json
+codex-project.json
+claude-project.json
 *.backup
 
 # Log files

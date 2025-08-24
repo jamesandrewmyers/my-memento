@@ -31,6 +31,12 @@ struct ContentView: View {
         animation: .default)
     private var notes: FetchedResults<Note>
     
+    // Central Tag source for suggestions (avoids inferring from note text)
+    @FetchRequest(
+        sortDescriptors: [NSSortDescriptor(keyPath: \Tag.name, ascending: true)],
+        animation: .default)
+    private var tagObjects: FetchedResults<Tag>
+    
     private var displayedNotes: [Note] {
         let baseNotes = isSearching ? filteredNotes : Array(notes)
         
@@ -51,11 +57,18 @@ struct ContentView: View {
     }
     
     private var allTags: [String] {
-        let allTagSets = notes.compactMap { $0.tags as? Set<Tag> }
-        let allTagNames = allTagSets.flatMap { tagSet in
-            tagSet.compactMap { $0.name }
+        // Build a case-insensitive, de-duplicated, non-empty list of tag names
+        var seen = Set<String>()
+        var unique: [String] = []
+        for name in tagObjects.compactMap({ $0.name?.trimmingCharacters(in: .whitespacesAndNewlines) }) {
+            if name.isEmpty { continue }
+            let key = name.lowercased()
+            if !seen.contains(key) {
+                seen.insert(key)
+                unique.append(name)
+            }
         }
-        return Array(Set(allTagNames)).sorted()
+        return unique.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
     
     private func tagsToString(_ tagSet: NSSet?) -> String {
@@ -69,6 +82,8 @@ struct ContentView: View {
                 VStack(alignment: .leading) {
                     HStack {
                         TextField("Search notes...", text: $searchText)
+                            .autocorrectionDisabled(true)
+                            .textInputAutocapitalization(.never)
                             .textFieldStyle(RoundedBorderTextFieldStyle())
                             .onChange(of: searchText) { _, newValue in
                                 updateTagSuggestions(for: newValue)
@@ -234,7 +249,7 @@ struct ContentView: View {
                 }
             }
             .sheet(isPresented: $showTagList) {
-                TagListView()
+                TagBrowserView()
             }
             .alert("Error", isPresented: $errorManager.showError) {
                 Button("OK") { }

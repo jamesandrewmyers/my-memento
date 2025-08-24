@@ -34,7 +34,7 @@ struct NoteEditView: View {
                     .font(.subheadline)
             }
             
-            Section(header: Text("Content")) {
+            Section(header: contentHeader) {
                 if #available(iOS 15.0, *) {
                     RichTextEditor(attributedText: $noteBody)
                         .frame(minHeight: 200)
@@ -184,6 +184,46 @@ struct NoteEditView: View {
         } catch {
             let nsError = error as NSError
             errorManager.handleCoreDataError(nsError, context: "Failed to update note pin status")
+        }
+    }
+}
+
+// MARK: - Formatting Bar (visual only)
+
+extension NoteEditView {
+    private var contentHeader: some View {
+        HStack(alignment: .center, spacing: 8) {
+            Text("Content")
+            Spacer()
+            formattingBar
+        }
+    }
+
+    private var formattingBar: some View {
+        HStack(spacing: 16) {
+            Button(action: {}) {
+                Image(systemName: "bold")
+                    .imageScale(.medium)
+                    .accessibilityLabel("Bold")
+            }
+            .buttonStyle(PlainButtonStyle())
+            .foregroundColor(.secondary)
+
+            Button(action: {}) {
+                Image(systemName: "italic")
+                    .imageScale(.medium)
+                    .accessibilityLabel("Italic")
+            }
+            .buttonStyle(PlainButtonStyle())
+            .foregroundColor(.secondary)
+
+            Button(action: {}) {
+                Image(systemName: "underline")
+                    .imageScale(.medium)
+                    .accessibilityLabel("Underline")
+            }
+            .buttonStyle(PlainButtonStyle())
+            .foregroundColor(.secondary)
         }
     }
 }

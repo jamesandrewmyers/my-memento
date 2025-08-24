@@ -11,6 +11,10 @@ import SwiftUI
 struct MyMementoApp: App {
     let persistenceController = PersistenceController.shared
 
+    init() {
+        AttributedStringTransformer.register()
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()

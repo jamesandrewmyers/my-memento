@@ -169,8 +169,8 @@ struct TaggedNotesView: View {
                                 Spacer()
                             }
                             
-                            if let body = note.body, !body.isEmpty {
-                                Text(body)
+                            if let richText = note.richText, !richText.string.isEmpty {
+                                Text(richText.string)
                                     .font(.subheadline)
                                     .foregroundColor(.secondary)
                                     .lineLimit(2)

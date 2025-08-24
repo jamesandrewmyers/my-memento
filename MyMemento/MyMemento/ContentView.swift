@@ -385,7 +385,7 @@ struct ContentView: View {
             isSearching = true
             filteredNotes = notes.filter { note in
                 let titleContains = (note.title ?? "").localizedCaseInsensitiveContains(trimmedSearchText)
-                let bodyContains = (note.body ?? "").localizedCaseInsensitiveContains(trimmedSearchText)
+                let bodyContains = (note.richText?.string ?? "").localizedCaseInsensitiveContains(trimmedSearchText)
                 var tagsContains = false;
                 if trimmedSearchText.hasPrefix("#") {
                     tagsContains = tagsToString(note.tags).localizedCaseInsensitiveContains(trimmedSearchText.dropFirst())
@@ -419,7 +419,7 @@ struct ContentView: View {
         let note = Note(context: viewContext)
         note.id = UUID()
         note.title = "New Note"
-        note.body = ""
+        note.richText = NSAttributedString()
         // Tags will be empty NSSet by default
         note.createdAt = Date()
         note.isPinned = false

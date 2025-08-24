@@ -22,7 +22,7 @@ struct NoteEditView: View {
     
     @State private var title: String = ""
     @State private var tags: String = ""
-    @State private var noteBody: String = ""
+    @State private var noteBody: NSAttributedString = NSAttributedString()
     
     var body: some View {
         Form {
@@ -35,8 +35,12 @@ struct NoteEditView: View {
             }
             
             Section(header: Text("Content")) {
-                TextEditor(text: $noteBody)
-                    .frame(minHeight: 200)
+                if #available(iOS 15.0, *) {
+                    RichTextEditor(attributedText: $noteBody)
+                        .frame(minHeight: 200)
+                } else {
+                    Text("Rich text editor requires iOS 15.0+")
+                }
             }
         }
         .navigationTitle("Edit Note")
@@ -74,7 +78,7 @@ struct NoteEditView: View {
     private func loadNoteData() {
         title = note.title ?? ""
         tags = tagsToString(note.tags)
-        noteBody = note.body ?? ""
+        noteBody = note.richText ?? NSAttributedString()
     }
     
     private func tagsToString(_ tagSet: NSSet?) -> String {
@@ -125,8 +129,20 @@ struct NoteEditView: View {
             note.addToTags(tag)
         }
         
-        note.body = noteBody
-        
+        note.richText = noteBody
+        print("=== PRE-SAVE VALIDATION ===")
+          print("Note ID: \(note.id?.description ?? "nil")")
+          print("Note title: \(note.title ?? "nil")")
+          print("Note richText is nil: \(note.richText == nil)")
+          if let richText = note.richText {
+              print("Note richText length: \(richText.length)")
+              print("Note richText string: '\(richText.string)'")
+          } else {
+              print("Note richText is completely nil!")
+          }
+          print("Note createdAt: \(note.createdAt?.description ?? "nil")")
+          print("Note isPinned: \(note.isPinned)")
+          print("===========================")
         do {
             try viewContext.save()
             
@@ -139,6 +155,22 @@ struct NoteEditView: View {
             dismiss()
         } catch {
             let nsError = error as NSError
+            print("=== DETAILED SAVE ERROR ===")
+             print("Error: \(nsError)")
+             print("Domain: \(nsError.domain)")
+             print("Code: \(nsError.code)")
+             print("UserInfo:")
+             for (key, value) in nsError.userInfo {
+                 print("  \(key): \(value)")
+             }
+             if let detailedErrors = nsError.userInfo[NSDetailedErrorsKey] as?
+         [NSError] {
+                 print("Detailed Errors:")
+                 for detailError in detailedErrors {
+                     print("  - \(detailError)")
+                 }
+             }
+             print("===========================")
             errorManager.handleCoreDataError(nsError, context: "Failed to save note")
         }
     }

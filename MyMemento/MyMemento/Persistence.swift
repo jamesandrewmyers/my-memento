@@ -31,7 +31,7 @@ struct PersistenceController {
             let newNote = Note(context: viewContext)
             newNote.id = UUID()
             newNote.title = "Sample Note \(i + 1)"
-            newNote.body = "This is the body of sample note \(i + 1)"
+            newNote.richText = NSAttributedString(string: "This is the body of sample note \(i + 1)")
             newNote.createdAt = Date()
             newNote.addToTags(sampleTag)
             newNote.addToTags(noteTag)
@@ -171,7 +171,7 @@ struct PersistenceController {
                 let note = Note(context: context)
                 note.id = UUID()
                 note.title = noteData.title
-                note.body = noteData.body
+                note.richText = NSAttributedString(string: noteData.body)
                 note.createdAt = Date().addingTimeInterval(-Double(index * 3600)) // Stagger creation times by 1 hour each
                 note.isPinned = (index == 0) // Pin the first note (Welcome) as an example
                 

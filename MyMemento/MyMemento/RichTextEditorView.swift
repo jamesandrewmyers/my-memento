@@ -15,6 +15,7 @@ class RichTextEditorView: UIView {
     private let defaultTextColor = UIColor.label
     
     var onTextChange: ((NSAttributedString) -> Void)?
+    var onFormattingChange: ((Bool, Bool, Bool) -> Void)?
     
     // MARK: - Formatting Methods
     
@@ -29,6 +30,7 @@ class RichTextEditorView: UIView {
             // No selection - set typing attributes
             toggleTypingAttribute(.font, trait: .traitBold)
         }
+        notifyFormattingChange()
     }
     
     func toggleItalic() {
@@ -42,6 +44,7 @@ class RichTextEditorView: UIView {
             // No selection - set typing attributes
             toggleTypingAttribute(.font, trait: .traitItalic)
         }
+        notifyFormattingChange()
     }
     
     func toggleUnderline() {
@@ -85,6 +88,7 @@ class RichTextEditorView: UIView {
             
             textView.typingAttributes = typingAttributes
         }
+        notifyFormattingChange()
     }
     
     private func toggleAttribute(_ attribute: NSAttributedString.Key, trait: UIFontDescriptor.SymbolicTraits, range: NSRange) {
@@ -149,6 +153,64 @@ class RichTextEditorView: UIView {
         }
         
         return font
+    }
+    
+    // MARK: - Formatting State Detection
+    
+    func getCurrentFormattingState() -> (isBold: Bool, isItalic: Bool, isUnderlined: Bool) {
+        guard let textView = textView else { return (false, false, false) }
+        
+        let selectedRange = textView.selectedRange
+        guard let attributedText = textView.attributedText else { return (false, false, false) }
+        
+        if selectedRange.length > 0 {
+            // Check formatting of selected text - use first character as representative
+            return getFormattingAtLocation(selectedRange.location, in: attributedText)
+        } else {
+            // Check typing attributes when no selection
+            let typingAttributes = textView.typingAttributes
+            let isBold = isAttributeBold(typingAttributes)
+            let isItalic = isAttributeItalic(typingAttributes)
+            let isUnderlined = isAttributeUnderlined(typingAttributes)
+            return (isBold, isItalic, isUnderlined)
+        }
+    }
+    
+    private func getFormattingAtLocation(_ location: Int, in attributedText: NSAttributedString) -> (isBold: Bool, isItalic: Bool, isUnderlined: Bool) {
+        guard location < attributedText.length else { return (false, false, false) }
+        
+        let attributes = attributedText.attributes(at: location, effectiveRange: nil)
+        let isBold = isAttributeBold(attributes)
+        let isItalic = isAttributeItalic(attributes)
+        let isUnderlined = isAttributeUnderlined(attributes)
+        
+        return (isBold, isItalic, isUnderlined)
+    }
+    
+    private func isAttributeBold(_ attributes: [NSAttributedString.Key: Any]) -> Bool {
+        if let font = attributes[.font] as? UIFont {
+            return font.fontDescriptor.symbolicTraits.contains(.traitBold)
+        }
+        return false
+    }
+    
+    private func isAttributeItalic(_ attributes: [NSAttributedString.Key: Any]) -> Bool {
+        if let font = attributes[.font] as? UIFont {
+            return font.fontDescriptor.symbolicTraits.contains(.traitItalic)
+        }
+        return false
+    }
+    
+    private func isAttributeUnderlined(_ attributes: [NSAttributedString.Key: Any]) -> Bool {
+        if let underlineValue = attributes[.underlineStyle] as? Int {
+            return underlineValue != 0
+        }
+        return false
+    }
+    
+    private func notifyFormattingChange() {
+        let state = getCurrentFormattingState()
+        onFormattingChange?(state.isBold, state.isItalic, state.isUnderlined)
     }
     
     // MARK: - Initialization
@@ -229,6 +291,11 @@ extension RichTextEditorView: UITextViewDelegate {
         // Ensure new text gets default attributes
         ensureDefaultAttributes(in: textView)
         onTextChange?(textView.attributedText)
+        notifyFormattingChange()
+    }
+    
+    func textViewDidChangeSelection(_ textView: UITextView) {
+        notifyFormattingChange()
     }
     
     func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
@@ -263,11 +330,15 @@ extension RichTextEditorView: UITextViewDelegate {
 @available(iOS 15.0, *)
 struct RichTextEditor: UIViewRepresentable {
     @Binding var attributedText: NSAttributedString
+    @State private var isBold = false
+    @State private var isItalic = false
+    @State private var isUnderlined = false
     
     private let coordinator = Coordinator()
     
     class Coordinator {
         var editorView: RichTextEditorView?
+        var parent: RichTextEditor?
         
         func toggleBold() {
             editorView?.toggleBold()
@@ -280,9 +351,14 @@ struct RichTextEditor: UIViewRepresentable {
         func toggleUnderline() {
             editorView?.toggleUnderline()
         }
+        
+        func updateFormattingState(isBold: Bool, isItalic: Bool, isUnderlined: Bool) {
+            parent?.updateFormattingState(isBold: isBold, isItalic: isItalic, isUnderlined: isUnderlined)
+        }
     }
     
     func makeCoordinator() -> Coordinator {
+        coordinator.parent = self
         return coordinator
     }
     
@@ -291,6 +367,12 @@ struct RichTextEditor: UIViewRepresentable {
         editorView.onTextChange = { newAttributedText in
             DispatchQueue.main.async {
                 attributedText = newAttributedText
+            }
+        }
+        
+        editorView.onFormattingChange = { isBold, isItalic, isUnderlined in
+            DispatchQueue.main.async {
+                context.coordinator.updateFormattingState(isBold: isBold, isItalic: isItalic, isUnderlined: isUnderlined)
             }
         }
         
@@ -319,5 +401,15 @@ struct RichTextEditor: UIViewRepresentable {
     
     func toggleUnderline() {
         coordinator.toggleUnderline()
+    }
+    
+    func updateFormattingState(isBold: Bool, isItalic: Bool, isUnderlined: Bool) {
+        self.isBold = isBold
+        self.isItalic = isItalic
+        self.isUnderlined = isUnderlined
+    }
+    
+    func getFormattingState() -> (isBold: Bool, isItalic: Bool, isUnderlined: Bool) {
+        return (isBold, isItalic, isUnderlined)
     }
 }

@@ -24,6 +24,9 @@ struct NoteEditView: View {
     @State private var tags: String = ""
     @State private var noteBody: NSAttributedString = NSAttributedString()
     @State private var editorCoordinator: RichTextEditor.Coordinator?
+    @State private var isBold = false
+    @State private var isItalic = false
+    @State private var isUnderlined = false
     
     var body: some View {
         Form {
@@ -39,7 +42,10 @@ struct NoteEditView: View {
                 if #available(iOS 15.0, *) {
                     RichTextEditorWrapper(
                         attributedText: $noteBody,
-                        coordinator: $editorCoordinator
+                        coordinator: $editorCoordinator,
+                        isBold: $isBold,
+                        isItalic: $isItalic,
+                        isUnderlined: $isUnderlined
                     )
                     .frame(minHeight: 200)
                 } else {
@@ -215,7 +221,7 @@ extension NoteEditView {
                     .accessibilityLabel("Bold")
             }
             .buttonStyle(PlainButtonStyle())
-            .foregroundColor(.secondary)
+            .foregroundColor(isBold ? .blue : .secondary)
 
             Button(action: {
                 if #available(iOS 15.0, *) {
@@ -227,7 +233,7 @@ extension NoteEditView {
                     .accessibilityLabel("Italic")
             }
             .buttonStyle(PlainButtonStyle())
-            .foregroundColor(.secondary)
+            .foregroundColor(isItalic ? .blue : .secondary)
 
             Button(action: {
                 if #available(iOS 15.0, *) {
@@ -239,7 +245,7 @@ extension NoteEditView {
                     .accessibilityLabel("Underline")
             }
             .buttonStyle(PlainButtonStyle())
-            .foregroundColor(.secondary)
+            .foregroundColor(isUnderlined ? .blue : .secondary)
         }
     }
 }
@@ -250,6 +256,9 @@ extension NoteEditView {
 struct RichTextEditorWrapper: UIViewRepresentable {
     @Binding var attributedText: NSAttributedString
     @Binding var coordinator: RichTextEditor.Coordinator?
+    @Binding var isBold: Bool
+    @Binding var isItalic: Bool
+    @Binding var isUnderlined: Bool
     
     func makeCoordinator() -> RichTextEditor.Coordinator {
         let coord = RichTextEditor.Coordinator()
@@ -264,6 +273,14 @@ struct RichTextEditorWrapper: UIViewRepresentable {
         editorView.onTextChange = { newAttributedText in
             DispatchQueue.main.async {
                 attributedText = newAttributedText
+            }
+        }
+        
+        editorView.onFormattingChange = { bold, italic, underlined in
+            DispatchQueue.main.async {
+                isBold = bold
+                isItalic = italic
+                isUnderlined = underlined
             }
         }
         

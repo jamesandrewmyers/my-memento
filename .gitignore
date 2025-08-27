@@ -177,3 +177,5 @@ coverage/
 # Temporary files
 *.temp
 *.tmp
+.env
+.mcp.json

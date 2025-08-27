@@ -27,6 +27,8 @@ struct NoteEditView: View {
     @State private var isBold = false
     @State private var isItalic = false
     @State private var isUnderlined = false
+    @State private var isBulletList = false
+    @State private var isNumberedList = false
     
     var body: some View {
         Form {
@@ -45,7 +47,9 @@ struct NoteEditView: View {
                         coordinator: $editorCoordinator,
                         isBold: $isBold,
                         isItalic: $isItalic,
-                        isUnderlined: $isUnderlined
+                        isUnderlined: $isUnderlined,
+                        isBulletList: $isBulletList,
+                        isNumberedList: $isNumberedList
                     )
                     .frame(minHeight: 200)
                 } else {
@@ -243,6 +247,28 @@ extension NoteEditView {
                     .accessibilityLabel("Underline")
             }
             .buttonStyle(FormattingButtonStyle(isActive: isUnderlined))
+            
+            Button(action: {
+                if #available(iOS 15.0, *) {
+                    editorCoordinator?.toggleBulletList()
+                }
+            }) {
+                Image(systemName: "list.bullet")
+                    .imageScale(.medium)
+                    .accessibilityLabel("Bullet List")
+            }
+            .buttonStyle(FormattingButtonStyle(isActive: isBulletList))
+
+            Button(action: {
+                if #available(iOS 15.0, *) {
+                    editorCoordinator?.toggleNumberedList()
+                }
+            }) {
+                Image(systemName: "list.number")
+                    .imageScale(.medium)
+                    .accessibilityLabel("Numbered List")
+            }
+            .buttonStyle(FormattingButtonStyle(isActive: isNumberedList))
         }
         .padding(.horizontal, 4)
         .padding(.vertical, 2)
@@ -332,6 +358,8 @@ struct RichTextEditorWrapper: UIViewRepresentable {
     @Binding var isBold: Bool
     @Binding var isItalic: Bool
     @Binding var isUnderlined: Bool
+    @Binding var isBulletList: Bool
+    @Binding var isNumberedList: Bool
     
     func makeCoordinator() -> RichTextEditor.Coordinator {
         let coord = RichTextEditor.Coordinator()
@@ -349,11 +377,13 @@ struct RichTextEditorWrapper: UIViewRepresentable {
             }
         }
         
-        editorView.onFormattingChange = { bold, italic, underlined in
+        editorView.onFormattingChange = { bold, italic, underlined, bulletList, numberedList in
             DispatchQueue.main.async {
                 isBold = bold
                 isItalic = italic
                 isUnderlined = underlined
+                isBulletList = bulletList
+                isNumberedList = numberedList
             }
         }
         

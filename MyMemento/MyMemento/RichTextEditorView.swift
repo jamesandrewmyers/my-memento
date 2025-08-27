@@ -15,7 +15,17 @@ class RichTextEditorView: UIView {
     private let defaultTextColor = UIColor.label
     
     var onTextChange: ((NSAttributedString) -> Void)?
-    var onFormattingChange: ((Bool, Bool, Bool) -> Void)?
+    var onFormattingChange: ((Bool, Bool, Bool, Bool, Bool) -> Void)?
+    
+    // Helper struct for list continuation
+    private struct ListContinuation {
+        let insertionPoint: Int
+        let prefix: String
+        let paragraphStyle: NSParagraphStyle?
+    }
+    
+    private var pendingListContinuation: ListContinuation?
+    private var lastTextLength: Int = 0
     
     // MARK: - Formatting Methods
     
@@ -96,6 +106,191 @@ class RichTextEditorView: UIView {
         }
         notifyFormattingChange()
     }
+
+    
+    func toggleBulletList() {
+        guard let textView = textView else { return }
+        
+        let selectedRange = textView.selectedRange
+        let mutableText = NSMutableAttributedString(attributedString: textView.attributedText)
+        
+        // Get the range of lines affected
+        let lineRanges = getLinesInRange(selectedRange, in: mutableText.string)
+        
+        // Check if any line already has bullet formatting
+        let hasBulletList = lineRanges.contains { lineRange in
+            return mutableText.string[lineRange].hasPrefix("• ")
+        }
+        
+        var adjustedSelectionLocation = selectedRange.location
+        var adjustedSelectionLength = selectedRange.length
+        
+        // Apply or remove bullet formatting
+        for lineRange in lineRanges.reversed() {
+            let nsLineRange = NSRange(lineRange, in: mutableText.string)
+            
+            if hasBulletList {
+                // Remove bullet formatting
+                let lineText = mutableText.string[lineRange]
+                if lineText.hasPrefix("• ") {
+                    // Remove bullet and space
+                    let newText = String(lineText.dropFirst(2))
+                    mutableText.replaceCharacters(in: nsLineRange, with: newText)
+                    
+                    // Remove paragraph style
+                    mutableText.removeAttribute(.paragraphStyle, range: NSRange(location: nsLineRange.location, length: newText.count))
+                    
+                    // Adjust selection
+                    if nsLineRange.location <= selectedRange.location {
+                        adjustedSelectionLocation -= 2
+                    }
+                    if nsLineRange.location < selectedRange.location + selectedRange.length {
+                        adjustedSelectionLength -= 2
+                    }
+                }
+            } else {
+                // Add bullet formatting
+                let lineText = mutableText.string[lineRange]
+                let newText = "• " + lineText
+                mutableText.replaceCharacters(in: nsLineRange, with: newText)
+                
+                // Apply paragraph style with indentation
+                let paragraphStyle = NSMutableParagraphStyle()
+                paragraphStyle.headIndent = 20
+                paragraphStyle.firstLineHeadIndent = 0
+                
+                mutableText.addAttribute(.paragraphStyle, value: paragraphStyle, range: NSRange(location: nsLineRange.location, length: newText.count))
+                
+                // Adjust selection
+                if nsLineRange.location <= selectedRange.location {
+                    adjustedSelectionLocation += 2
+                }
+                if nsLineRange.location < selectedRange.location + selectedRange.length {
+                    adjustedSelectionLength += 2
+                }
+            }
+        }
+        
+        textView.attributedText = mutableText
+        onTextChange?(mutableText)
+        
+        // Restore adjusted selection
+        let newSelection = NSRange(location: max(0, adjustedSelectionLocation), 
+                                 length: max(0, adjustedSelectionLength))
+        DispatchQueue.main.async {
+            self.textView.selectedRange = newSelection
+        }
+        notifyFormattingChange()
+    }
+    
+    func toggleNumberedList() {
+        guard let textView = textView else { return }
+        
+        let selectedRange = textView.selectedRange
+        let mutableText = NSMutableAttributedString(attributedString: textView.attributedText)
+        
+        // Get the range of lines affected
+        let lineRanges = getLinesInRange(selectedRange, in: mutableText.string)
+        
+        // Check if any line already has numbered list formatting
+        let hasNumberedList = lineRanges.contains { lineRange in
+            let lineText = mutableText.string[lineRange]
+            return lineText.range(of: #"^\d+\. "#, options: .regularExpression) != nil
+        }
+        
+        var adjustedSelectionLocation = selectedRange.location
+        var adjustedSelectionLength = selectedRange.length
+        
+        // Apply or remove numbered list formatting
+        for (index, lineRange) in lineRanges.reversed().enumerated() {
+            let nsLineRange = NSRange(lineRange, in: mutableText.string)
+            let lineText = mutableText.string[lineRange]
+            
+            if hasNumberedList {
+                // Remove numbered list formatting
+                if let range = lineText.range(of: #"^\d+\. "#, options: .regularExpression) {
+                    let newText = String(lineText[range.upperBound...])
+                    let removedLength = lineText.distance(from: lineText.startIndex, to: range.upperBound)
+                    
+                    mutableText.replaceCharacters(in: nsLineRange, with: newText)
+                    
+                    // Remove paragraph style
+                    mutableText.removeAttribute(.paragraphStyle, range: NSRange(location: nsLineRange.location, length: newText.count))
+                    
+                    // Adjust selection
+                    if nsLineRange.location <= selectedRange.location {
+                        adjustedSelectionLocation -= removedLength
+                    }
+                    if nsLineRange.location < selectedRange.location + selectedRange.length {
+                        adjustedSelectionLength -= removedLength
+                    }
+                }
+            } else {
+                // Add numbered list formatting
+                let lineNumber = lineRanges.count - index
+                let newText = "\(lineNumber). " + lineText
+                let addedLength = newText.count - lineText.count
+                
+                mutableText.replaceCharacters(in: nsLineRange, with: newText)
+                
+                // Apply paragraph style with indentation
+                let paragraphStyle = NSMutableParagraphStyle()
+                paragraphStyle.headIndent = 20
+                paragraphStyle.firstLineHeadIndent = 0
+                
+                mutableText.addAttribute(.paragraphStyle, value: paragraphStyle, range: NSRange(location: nsLineRange.location, length: newText.count))
+                
+                // Adjust selection
+                if nsLineRange.location <= selectedRange.location {
+                    adjustedSelectionLocation += addedLength
+                }
+                if nsLineRange.location < selectedRange.location + selectedRange.length {
+                    adjustedSelectionLength += addedLength
+                }
+            }
+        }
+        
+        textView.attributedText = mutableText
+        onTextChange?(mutableText)
+        
+        // Restore adjusted selection
+        let newSelection = NSRange(location: max(0, adjustedSelectionLocation), 
+                                 length: max(0, adjustedSelectionLength))
+        DispatchQueue.main.async {
+            self.textView.selectedRange = newSelection
+        }
+        notifyFormattingChange()
+    }
+    
+    private func getLinesInRange(_ range: NSRange, in text: String) -> [Range<String.Index>] {
+        var lines: [Range<String.Index>] = []
+        
+        let nsText = text as NSString
+        _ = nsText.substring(with: range) // Keep range validation
+        
+        // Find the start of the first line
+        var lineStart = range.location
+        while lineStart > 0 && nsText.character(at: lineStart - 1) != unichar(10) { // 10 is newline character
+            lineStart -= 1
+        }
+        
+        // Find the end of the last line
+        var lineEnd = range.location + range.length
+        while lineEnd < text.count && nsText.character(at: lineEnd) != unichar(10) { // 10 is newline character
+            lineEnd += 1
+        }
+        
+        let fullRange = NSRange(location: lineStart, length: lineEnd - lineStart)
+        
+        // Split into individual lines
+        nsText.enumerateSubstrings(in: fullRange, options: [.byLines, .substringNotRequired]) { _, lineRange, _, _ in
+            if let stringRange = Range(lineRange, in: text) {
+                lines.append(stringRange)
+            }
+        }
+        
+        return lines
+    }
     
     private func toggleAttribute(_ attribute: NSAttributedString.Key, trait: UIFontDescriptor.SymbolicTraits, range: NSRange) {
         let mutableText = NSMutableAttributedString(attributedString: textView.attributedText)
@@ -169,22 +364,29 @@ class RichTextEditorView: UIView {
     
     // MARK: - Formatting State Detection
     
-    func getCurrentFormattingState() -> (isBold: Bool, isItalic: Bool, isUnderlined: Bool) {
-        guard let textView = textView else { return (false, false, false) }
+    func getCurrentFormattingState() -> (isBold: Bool, isItalic: Bool, isUnderlined: Bool, isBulletList: Bool, isNumberedList: Bool) {
+        guard let textView = textView else { return (false, false, false, false, false) }
         
         let selectedRange = textView.selectedRange
-        guard let attributedText = textView.attributedText else { return (false, false, false) }
+        guard let attributedText = textView.attributedText else { return (false, false, false, false, false) }
         
         if selectedRange.length > 0 {
             // Check formatting of selected text - use first character as representative
-            return getFormattingAtLocation(selectedRange.location, in: attributedText)
+            let basicFormatting = getFormattingAtLocation(selectedRange.location, in: attributedText)
+            let listFormatting = getListFormattingInRange(selectedRange, in: attributedText)
+            return (basicFormatting.isBold, basicFormatting.isItalic, basicFormatting.isUnderlined, 
+                   listFormatting.isBulletList, listFormatting.isNumberedList)
         } else {
             // Check typing attributes when no selection
             let typingAttributes = textView.typingAttributes
             let isBold = isAttributeBold(typingAttributes)
             let isItalic = isAttributeItalic(typingAttributes)
             let isUnderlined = isAttributeUnderlined(typingAttributes)
-            return (isBold, isItalic, isUnderlined)
+            
+            // Check current line for list formatting
+            let listFormatting = getListFormattingInRange(NSRange(location: selectedRange.location, length: 0), in: attributedText)
+            
+            return (isBold, isItalic, isUnderlined, listFormatting.isBulletList, listFormatting.isNumberedList)
         }
     }
     
@@ -219,10 +421,44 @@ class RichTextEditorView: UIView {
         }
         return false
     }
+
+    
+    private func getListFormattingInRange(_ range: NSRange, in attributedText: NSAttributedString) -> (isBulletList: Bool, isNumberedList: Bool) {
+        let text = attributedText.string
+        guard !text.isEmpty else { return (false, false) }
+        
+        // Find the current line(s)
+        let nsText = text as NSString
+        var lineStart = range.location
+        
+        // Find the start of the current line
+        while lineStart > 0 && nsText.character(at: lineStart - 1) != unichar(10) { // 10 is newline character
+            lineStart -= 1
+        }
+        
+        // Get the line range
+        var lineEnd = lineStart
+        while lineEnd < text.count && nsText.character(at: lineEnd) != unichar(10) { // 10 is newline character
+            lineEnd += 1
+        }
+        
+        let lineRange = NSRange(location: lineStart, length: lineEnd - lineStart)
+        guard lineRange.length > 0 else { return (false, false) }
+        
+        let lineText = nsText.substring(with: lineRange)
+        
+        // Check for bullet list
+        let isBulletList = lineText.hasPrefix("• ")
+        
+        // Check for numbered list
+        let isNumberedList = lineText.range(of: #"^\d+\. "#, options: .regularExpression) != nil
+        
+        return (isBulletList, isNumberedList)
+    }
     
     private func notifyFormattingChange() {
         let state = getCurrentFormattingState()
-        onFormattingChange?(state.isBold, state.isItalic, state.isUnderlined)
+        onFormattingChange?(state.isBold, state.isItalic, state.isUnderlined, state.isBulletList, state.isNumberedList)
     }
     
     // MARK: - Initialization
@@ -279,11 +515,29 @@ class RichTextEditorView: UIView {
             .foregroundColor: defaultTextColor
         ]
         textView.attributedText = NSAttributedString(string: "", attributes: defaultAttributes)
+        lastTextLength = 0
     }
     
     // MARK: - Public Methods
     func setAttributedText(_ attributedString: NSAttributedString) {
+        // Preserve current caret/selection to prevent cursor jumping
+        let currentSelection = textView?.selectedRange ?? NSRange(location: 0, length: 0)
+        let wasFirstResponder = textView?.isFirstResponder ?? false
+
         textView.attributedText = attributedString
+        lastTextLength = attributedString.length
+
+        // Restore selection, clamped to valid range
+        let maxLocation = max(0, min(currentSelection.location, attributedString.length))
+        let maxLength = currentSelection.length > 0
+            ? max(0, min(currentSelection.length, attributedString.length - maxLocation))
+            : 0
+        textView.selectedRange = NSRange(location: maxLocation, length: maxLength)
+
+        // Ensure responder state remains consistent
+        if wasFirstResponder, !textView.isFirstResponder {
+            textView.becomeFirstResponder()
+        }
     }
     
     func getAttributedText() -> NSAttributedString {
@@ -300,8 +554,76 @@ class RichTextEditorView: UIView {
 @available(iOS 15.0, *)
 extension RichTextEditorView: UITextViewDelegate {
     func textViewDidChange(_ textView: UITextView) {
-        // Ensure new text gets default attributes
-        ensureDefaultAttributes(in: textView)
+        // Handle pending list continuation first, but only if it's from a return key operation
+        if let continuation = pendingListContinuation {
+            pendingListContinuation = nil
+            
+            let mutableText = NSMutableAttributedString(attributedString: textView.attributedText)
+            let currentCursorPosition = textView.selectedRange.location
+            
+            // Only proceed if:
+            // 1. We're still at the expected insertion point (within reasonable range)
+            // 2. The text length makes sense 
+            // 3. We actually have a newline character at the expected position
+            if continuation.insertionPoint <= mutableText.length && 
+               continuation.insertionPoint > 0 &&
+               abs(currentCursorPosition - continuation.insertionPoint) <= 2 {
+                
+                let stringText = mutableText.string
+                // Check if we have a newline at the insertion point - 1 (indicating this came from return key)
+                if continuation.insertionPoint <= stringText.count {
+                    let checkIndex = continuation.insertionPoint - 1
+                    if checkIndex >= 0 && checkIndex < stringText.count {
+                        let nsText = stringText as NSString
+                        let charAtPosition = nsText.character(at: checkIndex)
+                        
+                        // Only continue if we have a newline, confirming this is from a return key
+                        if charAtPosition == unichar(10) { // newline character
+                            
+                            // Prepare attributes for the list prefix
+                            var attributes: [NSAttributedString.Key: Any] = [
+                                .font: defaultFont,
+                                .foregroundColor: defaultTextColor
+                            ]
+                            if let paragraphStyle = continuation.paragraphStyle {
+                                attributes[.paragraphStyle] = paragraphStyle
+                            }
+                            
+                            let listPrefixString = NSAttributedString(string: continuation.prefix, attributes: attributes)
+                            
+                            // Insert the list prefix at the continuation point
+                            mutableText.insert(listPrefixString, at: continuation.insertionPoint)
+                            
+                            // Calculate new cursor position
+                            let newCursorPosition = continuation.insertionPoint + continuation.prefix.count
+                            
+                            // Update text view without triggering another change event
+                            textView.attributedText = mutableText
+                            
+                            // Set cursor position only if it makes sense
+                            if newCursorPosition <= mutableText.length {
+                                textView.selectedRange = NSRange(location: newCursorPosition, length: 0)
+                            }
+                            
+                            // Skip ensureDefaultAttributes since we just set the text
+                            onTextChange?(textView.attributedText)
+                            notifyFormattingChange()
+                            return
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Only run ensureDefaultAttributes for text additions, not deletions
+        // This prevents cursor jumping during delete operations
+        let currentLength = textView.attributedText.length
+        if currentLength > lastTextLength {
+            // Text was added, ensure it has default attributes
+            ensureDefaultAttributes(in: textView)
+        }
+        lastTextLength = currentLength
+        
         onTextChange?(textView.attributedText)
         notifyFormattingChange()
     }
@@ -311,12 +633,143 @@ extension RichTextEditorView: UITextViewDelegate {
     }
     
     func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
-        // Set typing attributes to default for new text
+        // Handle return key specially to maintain proper list formatting
+        if text == "\n" {
+            return handleReturnKeyImproved(in: textView, at: range)
+        }
+        
+        // For other text, set typing attributes to default
         textView.typingAttributes = [
             .font: defaultFont,
             .foregroundColor: defaultTextColor
         ]
         return true
+    }
+
+    
+    private func handleReturnKeyImproved(in textView: UITextView, at range: NSRange) -> Bool {
+        let mutableText = NSMutableAttributedString(attributedString: textView.attributedText)
+        let insertPosition = range.location
+        
+        // Get current line information
+        let currentLineRange = getCurrentLineRange(at: insertPosition, in: mutableText.string)
+        let currentLineText = String(mutableText.string[currentLineRange])
+        
+        // Check if we're in a list and determine what to do
+        var shouldContinueList = false
+        var shouldRemoveEmptyListItem = false
+        var listPrefix = ""
+        var listParagraphStyle: NSParagraphStyle?
+        
+        if currentLineText.hasPrefix("• ") {
+            // Bullet list handling
+            let contentAfterBullet = String(currentLineText.dropFirst(2)).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !contentAfterBullet.isEmpty {
+                // Non-empty bullet - continue the list
+                shouldContinueList = true
+                listPrefix = "• "
+                let paragraphStyle = NSMutableParagraphStyle()
+                paragraphStyle.headIndent = 20
+                paragraphStyle.firstLineHeadIndent = 0
+                listParagraphStyle = paragraphStyle
+            } else {
+                // Empty bullet - remove it and end the list
+                shouldRemoveEmptyListItem = true
+            }
+        } else if let numberedMatch = currentLineText.range(of: #"^(\d+)\. "#, options: .regularExpression) {
+            // Numbered list handling
+            let contentAfterNumber = String(currentLineText[numberedMatch.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !contentAfterNumber.isEmpty {
+                // Non-empty numbered item - continue the list
+                // Extract current number and increment
+                let prefix = String(currentLineText[..<numberedMatch.upperBound])
+                if let numberMatch = prefix.range(of: #"\d+"#, options: .regularExpression) {
+                    let numberString = String(prefix[numberMatch])
+                    if let currentNumber = Int(numberString) {
+                        shouldContinueList = true
+                        listPrefix = "\(currentNumber + 1). "
+                        let paragraphStyle = NSMutableParagraphStyle()
+                        paragraphStyle.headIndent = 20
+                        paragraphStyle.firstLineHeadIndent = 0
+                        listParagraphStyle = paragraphStyle
+                    }
+                }
+            } else {
+                // Empty numbered item - remove it and end the list
+                shouldRemoveEmptyListItem = true
+            }
+        }
+        
+        // Handle empty list items
+        if shouldRemoveEmptyListItem {
+            // Calculate the range of the current line
+            let stringText = mutableText.string
+            
+            // Convert String.Index range to NSRange
+            let lineStartOffset = currentLineRange.lowerBound.utf16Offset(in: stringText)
+            let lineEndOffset = currentLineRange.upperBound.utf16Offset(in: stringText)
+            let lineNSRange = NSRange(location: lineStartOffset, length: lineEndOffset - lineStartOffset)
+            
+            // Remove the empty list item line
+            mutableText.deleteCharacters(in: lineNSRange)
+            
+            // Insert a newline with default formatting (no list indentation)
+            let newlineAttributes: [NSAttributedString.Key: Any] = [
+                .font: defaultFont,
+                .foregroundColor: defaultTextColor
+            ]
+            let newlineString = NSAttributedString(string: "\n", attributes: newlineAttributes)
+            mutableText.insert(newlineString, at: lineNSRange.location)
+            
+            // Update the text view
+            textView.attributedText = mutableText
+            
+            // Position cursor at the start of the new line
+            let newCursorPosition = lineNSRange.location + 1
+            textView.selectedRange = NSRange(location: newCursorPosition, length: 0)
+            
+            // Call the text change handler
+            onTextChange?(textView.attributedText)
+            notifyFormattingChange()
+            
+            return false // We handled the return ourselves
+        }
+        
+        // Let UITextView handle the return normally first
+        let insertionPoint = range.location
+        
+        // If we should continue a list, we'll do it in the textViewDidChange callback
+        if shouldContinueList {
+            // Store the list continuation info for the callback
+            pendingListContinuation = ListContinuation(
+                insertionPoint: insertionPoint + 1, // +1 because return will be inserted
+                prefix: listPrefix,
+                paragraphStyle: listParagraphStyle
+            )
+        }
+        
+        return true // Let UITextView handle the return normally
+    }
+    
+    private func getCurrentLineRange(at position: Int, in text: String) -> Range<String.Index> {
+        let nsText = text as NSString
+        var lineStart = position
+        var lineEnd = position
+        
+        // Find start of current line
+        while lineStart > 0 && nsText.character(at: lineStart - 1) != unichar(10) {
+            lineStart -= 1
+        }
+        
+        // Find end of current line
+        while lineEnd < text.count && nsText.character(at: lineEnd) != unichar(10) {
+            lineEnd += 1
+        }
+        
+        let startIndex = text.index(text.startIndex, offsetBy: lineStart)
+        let endIndex = text.index(text.startIndex, offsetBy: lineEnd)
+        
+        return startIndex..<endIndex
     }
     
     private func ensureDefaultAttributes(in textView: UITextView) {
@@ -333,7 +786,10 @@ extension RichTextEditorView: UITextViewDelegate {
         }
         
         if !mutableText.isEqual(to: textView.attributedText) {
+            // Preserve cursor position when updating attributed text
+            let currentSelection = textView.selectedRange
             textView.attributedText = mutableText
+            textView.selectedRange = currentSelection
         }
     }
 }
@@ -345,6 +801,8 @@ struct RichTextEditor: UIViewRepresentable {
     @State private var isBold = false
     @State private var isItalic = false
     @State private var isUnderlined = false
+    @State private var isBulletList = false
+    @State private var isNumberedList = false
     
     private let coordinator = Coordinator()
     
@@ -363,9 +821,18 @@ struct RichTextEditor: UIViewRepresentable {
         func toggleUnderline() {
             editorView?.toggleUnderline()
         }
+
         
-        func updateFormattingState(isBold: Bool, isItalic: Bool, isUnderlined: Bool) {
-            parent?.updateFormattingState(isBold: isBold, isItalic: isItalic, isUnderlined: isUnderlined)
+        func toggleBulletList() {
+            editorView?.toggleBulletList()
+        }
+        
+        func toggleNumberedList() {
+            editorView?.toggleNumberedList()
+        }
+        
+        func updateFormattingState(isBold: Bool, isItalic: Bool, isUnderlined: Bool, isBulletList: Bool, isNumberedList: Bool) {
+            parent?.updateFormattingState(isBold: isBold, isItalic: isItalic, isUnderlined: isUnderlined, isBulletList: isBulletList, isNumberedList: isNumberedList)
         }
     }
     
@@ -382,9 +849,9 @@ struct RichTextEditor: UIViewRepresentable {
             }
         }
         
-        editorView.onFormattingChange = { isBold, isItalic, isUnderlined in
+        editorView.onFormattingChange = { isBold, isItalic, isUnderlined, isBulletList, isNumberedList in
             DispatchQueue.main.async {
-                context.coordinator.updateFormattingState(isBold: isBold, isItalic: isItalic, isUnderlined: isUnderlined)
+                context.coordinator.updateFormattingState(isBold: isBold, isItalic: isItalic, isUnderlined: isUnderlined, isBulletList: isBulletList, isNumberedList: isNumberedList)
             }
         }
         
@@ -415,13 +882,15 @@ struct RichTextEditor: UIViewRepresentable {
         coordinator.toggleUnderline()
     }
     
-    func updateFormattingState(isBold: Bool, isItalic: Bool, isUnderlined: Bool) {
+    func updateFormattingState(isBold: Bool, isItalic: Bool, isUnderlined: Bool, isBulletList: Bool, isNumberedList: Bool) {
         self.isBold = isBold
         self.isItalic = isItalic
         self.isUnderlined = isUnderlined
+        self.isBulletList = isBulletList
+        self.isNumberedList = isNumberedList
     }
     
-    func getFormattingState() -> (isBold: Bool, isItalic: Bool, isUnderlined: Bool) {
-        return (isBold, isItalic, isUnderlined)
+    func getFormattingState() -> (isBold: Bool, isItalic: Bool, isUnderlined: Bool, isBulletList: Bool, isNumberedList: Bool) {
+        return (isBold, isItalic, isUnderlined, isBulletList, isNumberedList)
     }
 }

@@ -89,3 +89,4 @@ I give you permission to make all filesystem changes except removal.
 I give you permission to make any and all git commands except removal. 
 Never include references to this assistant in any content generated unless explicitly asked to do so.
 Do not add unrequested features to code unless expressly required by other requested features.
+Prioritize the use of mcp servers when they provide features that would assist with a request.

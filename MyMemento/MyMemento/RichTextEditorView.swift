@@ -124,6 +124,7 @@ class RichTextEditorView: UIView {
         
         var adjustedSelectionLocation = selectedRange.location
         var adjustedSelectionLength = selectedRange.length
+        let hadSelection = selectedRange.length > 0
         
         // Apply or remove bullet formatting
         for lineRange in lineRanges.reversed() {
@@ -144,7 +145,7 @@ class RichTextEditorView: UIView {
                     if nsLineRange.location <= selectedRange.location {
                         adjustedSelectionLocation -= 2
                     }
-                    if nsLineRange.location < selectedRange.location + selectedRange.length {
+                    if hadSelection && nsLineRange.location < selectedRange.location + selectedRange.length {
                         adjustedSelectionLength -= 2
                     }
                 }
@@ -165,7 +166,7 @@ class RichTextEditorView: UIView {
                 if nsLineRange.location <= selectedRange.location {
                     adjustedSelectionLocation += 2
                 }
-                if nsLineRange.location < selectedRange.location + selectedRange.length {
+                if hadSelection && nsLineRange.location < selectedRange.location + selectedRange.length {
                     adjustedSelectionLength += 2
                 }
             }
@@ -200,6 +201,7 @@ class RichTextEditorView: UIView {
         
         var adjustedSelectionLocation = selectedRange.location
         var adjustedSelectionLength = selectedRange.length
+        let hadSelection = selectedRange.length > 0
         
         // Apply or remove numbered list formatting
         for (index, lineRange) in lineRanges.reversed().enumerated() {
@@ -221,7 +223,7 @@ class RichTextEditorView: UIView {
                     if nsLineRange.location <= selectedRange.location {
                         adjustedSelectionLocation -= removedLength
                     }
-                    if nsLineRange.location < selectedRange.location + selectedRange.length {
+                    if hadSelection && nsLineRange.location < selectedRange.location + selectedRange.length {
                         adjustedSelectionLength -= removedLength
                     }
                 }
@@ -244,7 +246,7 @@ class RichTextEditorView: UIView {
                 if nsLineRange.location <= selectedRange.location {
                     adjustedSelectionLocation += addedLength
                 }
-                if nsLineRange.location < selectedRange.location + selectedRange.length {
+                if hadSelection && nsLineRange.location < selectedRange.location + selectedRange.length {
                     adjustedSelectionLength += addedLength
                 }
             }

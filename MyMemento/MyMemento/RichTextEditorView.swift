@@ -150,24 +150,29 @@ class RichTextEditorView: UIView {
                     }
                 }
             } else {
-                // Add bullet formatting
+                // Add bullet formatting. If a numbered prefix exists, remove it first.
                 let lineText = mutableText.string[lineRange]
-                let newText = "• " + lineText
+                // Strip any numbered prefix first (e.g., "1. ")
+                let contentText = lineText.replacingOccurrences(of: #"^\d+\. "#,
+                                                                with: "",
+                                                                options: .regularExpression)
+                let newText = "• " + contentText
                 mutableText.replaceCharacters(in: nsLineRange, with: newText)
-                
+
                 // Apply paragraph style with indentation
                 let paragraphStyle = NSMutableParagraphStyle()
                 paragraphStyle.headIndent = 20
                 paragraphStyle.firstLineHeadIndent = 0
-                
+
                 mutableText.addAttribute(.paragraphStyle, value: paragraphStyle, range: NSRange(location: nsLineRange.location, length: newText.count))
-                
-                // Adjust selection
+
+                // Adjust selection by net delta (added bullet minus any removed number prefix)
+                let delta = newText.count - lineText.count
                 if nsLineRange.location <= selectedRange.location {
-                    adjustedSelectionLocation += 2
+                    adjustedSelectionLocation += delta
                 }
                 if hadSelection && nsLineRange.location < selectedRange.location + selectedRange.length {
-                    adjustedSelectionLength += 2
+                    adjustedSelectionLength += delta
                 }
             }
         }
@@ -228,21 +233,26 @@ class RichTextEditorView: UIView {
                     }
                 }
             } else {
-                // Add numbered list formatting
+                // Add numbered list formatting. If a bullet exists, remove it first.
                 let lineNumber = lineRanges.count - index
-                let newText = "\(lineNumber). " + lineText
-                let addedLength = newText.count - lineText.count
-                
+                let lineTextOriginal = lineText
+                // Strip any bullet prefix first (e.g., "• ")
+                let contentText = lineTextOriginal.replacingOccurrences(of: #"^• "#,
+                                                                        with: "",
+                                                                        options: .regularExpression)
+                let newText = "\(lineNumber). " + contentText
+                let addedLength = newText.count - lineTextOriginal.count
+
                 mutableText.replaceCharacters(in: nsLineRange, with: newText)
-                
+
                 // Apply paragraph style with indentation
                 let paragraphStyle = NSMutableParagraphStyle()
                 paragraphStyle.headIndent = 20
                 paragraphStyle.firstLineHeadIndent = 0
-                
+
                 mutableText.addAttribute(.paragraphStyle, value: paragraphStyle, range: NSRange(location: nsLineRange.location, length: newText.count))
-                
-                // Adjust selection
+
+                // Adjust selection by net delta
                 if nsLineRange.location <= selectedRange.location {
                     adjustedSelectionLocation += addedLength
                 }

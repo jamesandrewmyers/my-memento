@@ -32,6 +32,9 @@ struct NoteEditView: View {
     @State private var isH1 = false
     @State private var isH2 = false
     @State private var isH3 = false
+    @State private var showLinkDialog = false
+    @State private var linkDisplayLabel = ""
+    @State private var linkURL = ""
     
     var body: some View {
         Form {
@@ -92,6 +95,50 @@ struct NoteEditView: View {
             Button("OK") { }
         } message: {
             Text(errorManager.errorMessage)
+        }
+        .sheet(isPresented: $showLinkDialog) {
+            NavigationView {
+                VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Display Label")
+                            .font(.headline)
+                        TextField("Enter display text", text: $linkDisplayLabel)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("URL")
+                            .font(.headline)
+                        TextField("Enter URL", text: $linkURL)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .keyboardType(.URL)
+                            .autocapitalization(.none)
+                    }
+                    
+                    HStack {
+                        Spacer()
+                        Button("OK") {
+                            createLink()
+                            showLinkDialog = false
+                        }
+                        .disabled(linkDisplayLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || linkURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                    
+                    Spacer()
+                }
+                .padding()
+                .navigationTitle("Add Link")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarLeading) {
+                        Button("Cancel") {
+                            showLinkDialog = false
+                            linkDisplayLabel = ""
+                            linkURL = ""
+                        }
+                    }
+                }
+            }
         }
     }
     
@@ -206,15 +253,23 @@ struct NoteEditView: View {
             errorManager.handleCoreDataError(nsError, context: "Failed to update note pin status")
         }
     }
+    
+    private func createLink() {
+        guard let editorCoordinator = editorCoordinator else { return }
+        editorCoordinator.createLink(displayLabel: linkDisplayLabel, url: linkURL)
+        
+        // Clear the input fields
+        linkDisplayLabel = ""
+        linkURL = ""
+    }
 }
 
 // MARK: - Formatting Bar (visual only)
 
 extension NoteEditView {
     private var contentHeader: some View {
-        HStack(alignment: .center, spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
             Text("Content")
-            Spacer()
             formattingBar
         }
     }
@@ -306,6 +361,20 @@ extension NoteEditView {
                     .accessibilityLabel("Headers")
             }
             .buttonStyle(FormattingButtonStyle(isActive: isH1 || isH2 || isH3))
+            
+            // Link button
+            Button(action: {
+                // Set display label to selected text if any
+                if let editorCoordinator = editorCoordinator {
+                    linkDisplayLabel = editorCoordinator.getSelectedText()
+                }
+                showLinkDialog = true
+            }) {
+                Image(systemName: "link")
+                    .imageScale(.medium)
+                    .accessibilityLabel("Link")
+            }
+            .buttonStyle(FormattingButtonStyle(isActive: false))
             
             Button(action: {
                 if #available(iOS 15.0, *) {

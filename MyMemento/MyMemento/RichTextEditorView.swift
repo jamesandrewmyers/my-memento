@@ -287,6 +287,43 @@ class RichTextEditorView: UIView {
         toggleHeaderSize(18)
     }
     
+    func getSelectedText() -> String {
+        guard let textView = textView else { return "" }
+        
+        let selectedRange = textView.selectedRange
+        guard selectedRange.length > 0 else { return "" }
+        
+        let selectedText = (textView.attributedText.string as NSString).substring(with: selectedRange)
+        return selectedText
+    }
+    
+    func createLink(displayLabel: String, url: String) {
+        guard let textView = textView else { return }
+        
+        let selectedRange = textView.selectedRange
+        guard selectedRange.length > 0 else { return }
+        
+        let mutableText = NSMutableAttributedString(attributedString: textView.attributedText)
+        
+        // Replace the selected text with the display label
+        mutableText.replaceCharacters(in: selectedRange, with: displayLabel)
+        
+        // Apply the link attribute to the new text
+        let newRange = NSRange(location: selectedRange.location, length: displayLabel.count)
+        if let linkURL = URL(string: url) {
+            mutableText.addAttribute(.link, value: linkURL, range: newRange)
+        }
+        
+        textView.attributedText = mutableText
+        onTextChange?(mutableText)
+        
+        // Set cursor at the end of the link
+        let newSelection = NSRange(location: selectedRange.location + displayLabel.count, length: 0)
+        DispatchQueue.main.async {
+            self.textView.selectedRange = newSelection
+        }
+    }
+    
     private func toggleHeaderSize(_ fontSize: CGFloat) {
         guard let textView = textView else { return }
         
@@ -1016,6 +1053,14 @@ struct RichTextEditor: UIViewRepresentable {
         
         func toggleHeader3() {
             editorView?.toggleHeader3()
+        }
+        
+        func getSelectedText() -> String {
+            return editorView?.getSelectedText() ?? ""
+        }
+        
+        func createLink(displayLabel: String, url: String) {
+            editorView?.createLink(displayLabel: displayLabel, url: url)
         }
         
         func updateFormattingState(isBold: Bool, isItalic: Bool, isUnderlined: Bool, isBulletList: Bool, isNumberedList: Bool, isH1: Bool, isH2: Bool, isH3: Bool) {

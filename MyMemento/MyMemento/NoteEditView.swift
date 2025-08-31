@@ -29,6 +29,9 @@ struct NoteEditView: View {
     @State private var isUnderlined = false
     @State private var isBulletList = false
     @State private var isNumberedList = false
+    @State private var isH1 = false
+    @State private var isH2 = false
+    @State private var isH3 = false
     
     var body: some View {
         Form {
@@ -49,7 +52,10 @@ struct NoteEditView: View {
                         isItalic: $isItalic,
                         isUnderlined: $isUnderlined,
                         isBulletList: $isBulletList,
-                        isNumberedList: $isNumberedList
+                        isNumberedList: $isNumberedList,
+                        isH1: $isH1,
+                        isH2: $isH2,
+                        isH3: $isH3
                     )
                     .frame(minHeight: 200)
                 } else {
@@ -248,6 +254,32 @@ extension NoteEditView {
             }
             .buttonStyle(FormattingButtonStyle(isActive: isUnderlined))
             
+            // Header dropdown menu
+            Menu {
+                Button("H1") {
+                    if #available(iOS 15.0, *) {
+                        editorCoordinator?.toggleHeader1()
+                    }
+                }
+                
+                Button("H2") {
+                    if #available(iOS 15.0, *) {
+                        editorCoordinator?.toggleHeader2()
+                    }
+                }
+                
+                Button("H3") {
+                    if #available(iOS 15.0, *) {
+                        editorCoordinator?.toggleHeader3()
+                    }
+                }
+            } label: {
+                Text("H")
+                    .font(.system(size: 16, weight: .medium))
+                    .accessibilityLabel("Headers")
+            }
+            .buttonStyle(FormattingButtonStyle(isActive: isH1 || isH2 || isH3))
+            
             Button(action: {
                 if #available(iOS 15.0, *) {
                     editorCoordinator?.toggleBulletList()
@@ -360,6 +392,9 @@ struct RichTextEditorWrapper: UIViewRepresentable {
     @Binding var isUnderlined: Bool
     @Binding var isBulletList: Bool
     @Binding var isNumberedList: Bool
+    @Binding var isH1: Bool
+    @Binding var isH2: Bool
+    @Binding var isH3: Bool
     
     func makeCoordinator() -> RichTextEditor.Coordinator {
         let coord = RichTextEditor.Coordinator()
@@ -377,13 +412,16 @@ struct RichTextEditorWrapper: UIViewRepresentable {
             }
         }
         
-        editorView.onFormattingChange = { bold, italic, underlined, bulletList, numberedList in
+        editorView.onFormattingChange = { bold, italic, underlined, bulletList, numberedList, h1, h2, h3 in
             DispatchQueue.main.async {
                 isBold = bold
                 isItalic = italic
                 isUnderlined = underlined
                 isBulletList = bulletList
                 isNumberedList = numberedList
+                isH1 = h1
+                isH2 = h2
+                isH3 = h3
             }
         }
         

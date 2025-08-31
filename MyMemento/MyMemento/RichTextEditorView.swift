@@ -15,7 +15,7 @@ class RichTextEditorView: UIView {
     private let defaultTextColor = UIColor.label
     
     var onTextChange: ((NSAttributedString) -> Void)?
-    var onFormattingChange: ((Bool, Bool, Bool, Bool, Bool) -> Void)?
+    var onFormattingChange: ((Bool, Bool, Bool, Bool, Bool, Bool, Bool, Bool) -> Void)?
     
     // Helper struct for list continuation
     private struct ListContinuation {
@@ -273,6 +273,125 @@ class RichTextEditorView: UIView {
         }
         notifyFormattingChange()
     }
+
+    
+    func toggleHeader1() {
+        toggleHeaderSize(24)
+    }
+    
+    func toggleHeader2() {
+        toggleHeaderSize(20)
+    }
+    
+    func toggleHeader3() {
+        toggleHeaderSize(18)
+    }
+    
+    private func toggleHeaderSize(_ fontSize: CGFloat) {
+        guard let textView = textView else { return }
+        
+        let selectedRange = textView.selectedRange
+        if selectedRange.length > 0 {
+            // Text is selected - apply/remove header size to selection
+            toggleHeaderAttribute(fontSize: fontSize, range: selectedRange)
+        } else {
+            // No selection - set typing attributes
+            toggleHeaderTypingAttribute(fontSize: fontSize)
+        }
+        notifyFormattingChange()
+    }
+    
+    private func toggleHeaderAttribute(fontSize: CGFloat, range: NSRange) {
+        let mutableText = NSMutableAttributedString(attributedString: textView.attributedText)
+        let selectedRange = textView.selectedRange // Preserve selection
+        
+        // Check if the selection already has this header size
+        var hasHeaderSize = true
+        mutableText.enumerateAttribute(.font, in: range) { value, _, _ in
+            if let font = value as? UIFont {
+                if font.pointSize != fontSize {
+                    hasHeaderSize = false
+                }
+            } else {
+                hasHeaderSize = false
+            }
+        }
+        
+        // Apply or remove the header size
+        mutableText.enumerateAttribute(.font, in: range) { value, subRange, _ in
+            let currentFont = (value as? UIFont) ?? defaultFont
+            let newFont: UIFont
+            
+            if hasHeaderSize {
+                // Remove header size - use default size but preserve traits
+                newFont = fontByChangingSize(currentFont, newSize: defaultFont.pointSize)
+            } else {
+                // Apply header size - preserve traits but use header size
+                newFont = fontByChangingSize(currentFont, newSize: fontSize)
+            }
+            
+            mutableText.addAttribute(.font, value: newFont, range: subRange)
+        }
+        
+        textView.attributedText = mutableText
+        onTextChange?(mutableText)
+        
+        // Restore selection after a brief delay to ensure the text view has updated
+        DispatchQueue.main.async {
+            self.textView.selectedRange = selectedRange
+        }
+    }
+    
+    private func toggleHeaderTypingAttribute(fontSize: CGFloat) {
+        var typingAttributes = textView.typingAttributes
+        
+        // Check if current typing attributes have the header font size
+        let currentFont = (typingAttributes[.font] as? UIFont) ?? defaultFont
+        let hasHeaderLevel = currentFont.pointSize == fontSize
+        
+        if hasHeaderLevel {
+            // Remove header formatting - return to default font
+            typingAttributes[.font] = defaultFont
+            typingAttributes.removeValue(forKey: .paragraphStyle)
+        } else {
+            // Add header formatting - change font size while preserving traits
+            let headerFont = fontByChangingSize(currentFont, newSize: fontSize)
+            typingAttributes[.font] = headerFont
+            typingAttributes[.paragraphStyle] = createHeaderParagraphStyle()
+        }
+        
+        textView.typingAttributes = typingAttributes
+    }
+    
+    private func createHeaderParagraphStyle() -> NSMutableParagraphStyle {
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.paragraphSpacing = 8
+        paragraphStyle.paragraphSpacingBefore = 8
+        return paragraphStyle
+    }
+
+    
+    private func createHeaderFont(size: CGFloat, preservingTraitsFrom originalFont: UIFont) -> UIFont {
+        // Start with system font at the header size
+        let baseFont = UIFont.systemFont(ofSize: size)
+        var traits = baseFont.fontDescriptor.symbolicTraits
+        
+        // Always add bold trait for headers
+        traits.insert(.traitBold)
+        
+        // Preserve italic and underline from the original font, but only if it's not a default font
+        if originalFont.pointSize != defaultFont.pointSize || originalFont != defaultFont {
+            if originalFont.fontDescriptor.symbolicTraits.contains(.traitItalic) {
+                traits.insert(.traitItalic)
+            }
+        }
+        
+        if let newDescriptor = baseFont.fontDescriptor.withSymbolicTraits(traits) {
+            return UIFont(descriptor: newDescriptor, size: size)
+        }
+        
+        return baseFont
+    }
     
     private func getLinesInRange(_ range: NSRange, in text: String) -> [Range<String.Index>] {
         var lines: [Range<String.Index>] = []
@@ -350,7 +469,6 @@ class RichTextEditorView: UIView {
         
         let currentFont = (typingAttributes[attribute] as? UIFont) ?? defaultFont
         let hasTrait = currentFont.fontDescriptor.symbolicTraits.contains(trait)
-        
         let newFont = fontByTogglingTrait(currentFont, trait: trait, add: !hasTrait)
         typingAttributes[attribute] = newFont
         
@@ -374,31 +492,40 @@ class RichTextEditorView: UIView {
         return font
     }
     
+    private func fontByChangingSize(_ font: UIFont, newSize: CGFloat) -> UIFont {
+        let descriptor = font.fontDescriptor
+        return UIFont(descriptor: descriptor, size: newSize)
+    }
+    
     // MARK: - Formatting State Detection
     
-    func getCurrentFormattingState() -> (isBold: Bool, isItalic: Bool, isUnderlined: Bool, isBulletList: Bool, isNumberedList: Bool) {
-        guard let textView = textView else { return (false, false, false, false, false) }
+    func getCurrentFormattingState() -> (isBold: Bool, isItalic: Bool, isUnderlined: Bool, isBulletList: Bool, isNumberedList: Bool, isH1: Bool, isH2: Bool, isH3: Bool) {
+        guard let textView = textView else { return (false, false, false, false, false, false, false, false) }
         
         let selectedRange = textView.selectedRange
-        guard let attributedText = textView.attributedText else { return (false, false, false, false, false) }
+        guard let attributedText = textView.attributedText else { return (false, false, false, false, false, false, false, false) }
         
         if selectedRange.length > 0 {
             // Check formatting of selected text - use first character as representative
             let basicFormatting = getFormattingAtLocation(selectedRange.location, in: attributedText)
             let listFormatting = getListFormattingInRange(selectedRange, in: attributedText)
+            let headerFormatting = getHeaderFormattingAtLocation(selectedRange.location, in: attributedText)
             return (basicFormatting.isBold, basicFormatting.isItalic, basicFormatting.isUnderlined, 
-                   listFormatting.isBulletList, listFormatting.isNumberedList)
+                   listFormatting.isBulletList, listFormatting.isNumberedList,
+                   headerFormatting.isH1, headerFormatting.isH2, headerFormatting.isH3)
         } else {
             // Check typing attributes when no selection
             let typingAttributes = textView.typingAttributes
             let isBold = isAttributeBold(typingAttributes)
             let isItalic = isAttributeItalic(typingAttributes)
             let isUnderlined = isAttributeUnderlined(typingAttributes)
+            let headerFormatting = getHeaderFormattingFromTypingAttributes(typingAttributes)
             
             // Check current line for list formatting
             let listFormatting = getListFormattingInRange(NSRange(location: selectedRange.location, length: 0), in: attributedText)
             
-            return (isBold, isItalic, isUnderlined, listFormatting.isBulletList, listFormatting.isNumberedList)
+            return (isBold, isItalic, isUnderlined, listFormatting.isBulletList, listFormatting.isNumberedList,
+                   headerFormatting.isH1, headerFormatting.isH2, headerFormatting.isH3)
         }
     }
     
@@ -432,6 +559,36 @@ class RichTextEditorView: UIView {
             return underlineValue != 0
         }
         return false
+    }
+
+    private func getHeaderFormattingAtLocation(_ location: Int, in attributedText: NSAttributedString) -> (isH1: Bool, isH2: Bool, isH3: Bool) {
+        guard location < attributedText.length else { return (false, false, false) }
+        
+        let attributes = attributedText.attributes(at: location, effectiveRange: nil)
+        return getHeaderFormattingFromAttributes(attributes)
+    }
+    
+    private func getHeaderFormattingFromTypingAttributes(_ attributes: [NSAttributedString.Key: Any]) -> (isH1: Bool, isH2: Bool, isH3: Bool) {
+        return getHeaderFormattingFromAttributes(attributes)
+    }
+    
+    private func getHeaderFormattingFromAttributes(_ attributes: [NSAttributedString.Key: Any]) -> (isH1: Bool, isH2: Bool, isH3: Bool) {
+        if let font = attributes[.font] as? UIFont {
+            let fontSize = font.pointSize
+            
+            // Headers are determined by font size only, independent of bold/italic
+            switch fontSize {
+            case 24:
+                return (true, false, false)
+            case 20:
+                return (false, true, false)
+            case 18:
+                return (false, false, true)
+            default:
+                return (false, false, false)
+            }
+        }
+        return (false, false, false)
     }
 
     
@@ -470,7 +627,7 @@ class RichTextEditorView: UIView {
     
     private func notifyFormattingChange() {
         let state = getCurrentFormattingState()
-        onFormattingChange?(state.isBold, state.isItalic, state.isUnderlined, state.isBulletList, state.isNumberedList)
+        onFormattingChange?(state.isBold, state.isItalic, state.isUnderlined, state.isBulletList, state.isNumberedList, state.isH1, state.isH2, state.isH3)
     }
     
     // MARK: - Initialization
@@ -815,6 +972,9 @@ struct RichTextEditor: UIViewRepresentable {
     @State private var isUnderlined = false
     @State private var isBulletList = false
     @State private var isNumberedList = false
+    @State private var isH1 = false
+    @State private var isH2 = false
+    @State private var isH3 = false
     
     private let coordinator = Coordinator()
     
@@ -842,9 +1002,24 @@ struct RichTextEditor: UIViewRepresentable {
         func toggleNumberedList() {
             editorView?.toggleNumberedList()
         }
+
+
+
         
-        func updateFormattingState(isBold: Bool, isItalic: Bool, isUnderlined: Bool, isBulletList: Bool, isNumberedList: Bool) {
-            parent?.updateFormattingState(isBold: isBold, isItalic: isItalic, isUnderlined: isUnderlined, isBulletList: isBulletList, isNumberedList: isNumberedList)
+        func toggleHeader1() {
+            editorView?.toggleHeader1()
+        }
+        
+        func toggleHeader2() {
+            editorView?.toggleHeader2()
+        }
+        
+        func toggleHeader3() {
+            editorView?.toggleHeader3()
+        }
+        
+        func updateFormattingState(isBold: Bool, isItalic: Bool, isUnderlined: Bool, isBulletList: Bool, isNumberedList: Bool, isH1: Bool, isH2: Bool, isH3: Bool) {
+            parent?.updateFormattingState(isBold: isBold, isItalic: isItalic, isUnderlined: isUnderlined, isBulletList: isBulletList, isNumberedList: isNumberedList, isH1: isH1, isH2: isH2, isH3: isH3)
         }
     }
     
@@ -861,9 +1036,9 @@ struct RichTextEditor: UIViewRepresentable {
             }
         }
         
-        editorView.onFormattingChange = { isBold, isItalic, isUnderlined, isBulletList, isNumberedList in
+        editorView.onFormattingChange = { isBold, isItalic, isUnderlined, isBulletList, isNumberedList, isH1, isH2, isH3 in
             DispatchQueue.main.async {
-                context.coordinator.updateFormattingState(isBold: isBold, isItalic: isItalic, isUnderlined: isUnderlined, isBulletList: isBulletList, isNumberedList: isNumberedList)
+                context.coordinator.updateFormattingState(isBold: isBold, isItalic: isItalic, isUnderlined: isUnderlined, isBulletList: isBulletList, isNumberedList: isNumberedList, isH1: isH1, isH2: isH2, isH3: isH3)
             }
         }
         
@@ -894,15 +1069,18 @@ struct RichTextEditor: UIViewRepresentable {
         coordinator.toggleUnderline()
     }
     
-    func updateFormattingState(isBold: Bool, isItalic: Bool, isUnderlined: Bool, isBulletList: Bool, isNumberedList: Bool) {
+    func updateFormattingState(isBold: Bool, isItalic: Bool, isUnderlined: Bool, isBulletList: Bool, isNumberedList: Bool, isH1: Bool, isH2: Bool, isH3: Bool) {
         self.isBold = isBold
         self.isItalic = isItalic
         self.isUnderlined = isUnderlined
         self.isBulletList = isBulletList
         self.isNumberedList = isNumberedList
+        self.isH1 = isH1
+        self.isH2 = isH2
+        self.isH3 = isH3
     }
     
-    func getFormattingState() -> (isBold: Bool, isItalic: Bool, isUnderlined: Bool, isBulletList: Bool, isNumberedList: Bool) {
-        return (isBold, isItalic, isUnderlined, isBulletList, isNumberedList)
+    func getFormattingState() -> (isBold: Bool, isItalic: Bool, isUnderlined: Bool, isBulletList: Bool, isNumberedList: Bool, isH1: Bool, isH2: Bool, isH3: Bool) {
+        return (isBold, isItalic, isUnderlined, isBulletList, isNumberedList, isH1, isH2, isH3)
     }
 }

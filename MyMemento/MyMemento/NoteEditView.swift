@@ -256,21 +256,48 @@ extension NoteEditView {
             
             // Header dropdown menu
             Menu {
-                Button("H1") {
+                Button(action: {
                     if #available(iOS 15.0, *) {
                         editorCoordinator?.toggleHeader1()
                     }
-                }
-                
-                Button("H2") {
-                    if #available(iOS 15.0, *) {
-                        editorCoordinator?.toggleHeader2()
+                }) {
+                    HStack {
+                        Text("H1")
+                        Spacer()
+                        if isH1 {
+                            Image(systemName: "checkmark")
+                                .foregroundColor(.blue)
+                        }
                     }
                 }
                 
-                Button("H3") {
+                Button(action: {
+                    if #available(iOS 15.0, *) {
+                        editorCoordinator?.toggleHeader2()
+                    }
+                }) {
+                    HStack {
+                        Text("H2")
+                        Spacer()
+                        if isH2 {
+                            Image(systemName: "checkmark")
+                                .foregroundColor(.blue)
+                        }
+                    }
+                }
+                
+                Button(action: {
                     if #available(iOS 15.0, *) {
                         editorCoordinator?.toggleHeader3()
+                    }
+                }) {
+                    HStack {
+                        Text("H3")
+                        Spacer()
+                        if isH3 {
+                            Image(systemName: "checkmark")
+                                .foregroundColor(.blue)
+                        }
                     }
                 }
             } label: {

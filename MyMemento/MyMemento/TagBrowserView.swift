@@ -11,41 +11,26 @@ import CoreData
 struct TagBrowserView: View {
     @Environment(\.managedObjectContext) private var viewContext
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var noteIndexViewModel: NoteIndexViewModel
     @StateObject private var errorManager = ErrorManager.shared
 
-    @FetchRequest(
-        sortDescriptors: [NSSortDescriptor(keyPath: \Tag.name, ascending: true)],
-        animation: .default)
-    private var tags: FetchedResults<Tag>
-
-    // Search state (no leading “#” required)
+    // Search state (no leading "#" required)
     @State private var searchText = ""
-    @State private var filteredTags: [Tag] = []
+    @State private var filteredTags: [String] = []
     @State private var isSearching = false
     @State private var showTagSuggestions = false
     @State private var tagSuggestions: [String] = []
     @State private var justSelectedSuggestion = false
     @State private var lastSearchTextAfterSelection = ""
-    @State private var tagToDelete: Tag?
+    @State private var tagToDelete: String?
     @State private var showDeleteConfirmation = false
 
-    private var displayedTags: [Tag] {
-        isSearching ? filteredTags : Array(tags)
+    private var allTags: [String] {
+        return TagManager.extractTagsFromIndex(noteIndexViewModel.indexPayloads)
     }
 
-    private var allTagNames: [String] {
-        // Build a case-insensitive, de-duplicated, non-empty list of tag names
-        var seen = Set<String>()
-        var unique: [String] = []
-        for name in tags.compactMap({ $0.name?.trimmingCharacters(in: .whitespacesAndNewlines) }) {
-            if name.isEmpty { continue }
-            let key = name.lowercased()
-            if !seen.contains(key) {
-                seen.insert(key)
-                unique.append(name)
-            }
-        }
-        return unique.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    private var displayedTags: [String] {
+        isSearching ? filteredTags : allTags
     }
 
     var body: some View {
@@ -119,15 +104,15 @@ struct TagBrowserView: View {
                             .foregroundColor(.secondary)
                             .italic()
                     } else {
-                        ForEach(displayedTags, id: \.id) { tag in
-                            NavigationLink(destination: TaggedNotesView(tag: tag)) {
+                        ForEach(displayedTags, id: \.self) { tagName in
+                            NavigationLink(destination: TaggedNotesView(tagName: tagName)) {
                                 HStack {
                                     VStack(alignment: .leading, spacing: 4) {
-                                        Text(tag.name ?? "Unknown Tag")
+                                        Text(tagName)
                                             .font(.headline)
                                             .foregroundColor(.primary)
 
-                                        Text("\(noteCount(for: tag)) note\(noteCount(for: tag) == 1 ? "" : "s")")
+                                        Text("\(noteCount(for: tagName)) note\(noteCount(for: tagName) == 1 ? "" : "s")")
                                             .font(.caption)
                                             .foregroundColor(.secondary)
                                     }
@@ -163,8 +148,8 @@ struct TagBrowserView: View {
             if let tag = tagToDelete {
                 let noteCount = noteCount(for: tag)
                 let message = noteCount > 0 ?
-                    "This will remove \"\(tag.name ?? "")\" from \(noteCount) note\(noteCount == 1 ? "" : "s")." :
-                    "This will permanently delete the tag \"\(tag.name ?? "")\"."
+                    "This will remove \"\(tag)\" from \(noteCount) note\(noteCount == 1 ? "" : "s")." :
+                    "This will permanently delete the tag \"\(tag)\"."
                 Text(message)
             }
         }
@@ -175,8 +160,8 @@ struct TagBrowserView: View {
 
     // MARK: - Helpers
 
-    private func noteCount(for tag: Tag) -> Int {
-        return (tag.notes as? Set<Note>)?.count ?? 0
+    private func noteCount(for tagName: String) -> Int {
+        return TagManager.countNotes(for: tagName, in: noteIndexViewModel.indexPayloads)
     }
 
     private func deleteTag(at offsets: IndexSet) {
@@ -187,14 +172,45 @@ struct TagBrowserView: View {
         }
     }
 
-    private func performDeleteTag(_ tag: Tag) {
+    private func performDeleteTag(_ tagName: String) {
+        // Find all notes that contain this tag and remove it from their encrypted data
+        let notesToUpdate = TagManager.filterNotes(by: tagName, in: noteIndexViewModel.indexPayloads)
+        
         do {
-            if let associatedNotes = tag.notes as? Set<Note> {
-                for note in associatedNotes { note.removeFromTags(tag) }
+            let encryptionKey = try KeyManager.shared.getEncryptionKey()
+            
+            for indexPayload in notesToUpdate {
+                // Find the corresponding Note entity
+                let noteRequest: NSFetchRequest<Note> = Note.fetchRequest()
+                noteRequest.predicate = NSPredicate(format: "id == %@", indexPayload.id as CVarArg)
+                
+                if let note = try viewContext.fetch(noteRequest).first,
+                   let encryptedData = note.encryptedData {
+                    
+                    // Decrypt NotePayload, remove tag, re-encrypt
+                    var notePayload = try CryptoHelper.decrypt(encryptedData, key: encryptionKey, as: NotePayload.self)
+                    notePayload.tags.removeAll { $0.caseInsensitiveCompare(tagName) == .orderedSame }
+                    
+                    let updatedEncryptedData = try CryptoHelper.encrypt(notePayload, key: encryptionKey)
+                    note.encryptedData = updatedEncryptedData
+                    
+                    // Also update SearchIndex
+                    let searchIndexRequest: NSFetchRequest<SearchIndex> = SearchIndex.fetchRequest()
+                    searchIndexRequest.predicate = NSPredicate(format: "id == %@", indexPayload.id as CVarArg)
+                    
+                    if let searchIndex = try viewContext.fetch(searchIndexRequest).first {
+                        var updatedIndexPayload = indexPayload
+                        updatedIndexPayload.tags.removeAll { $0.caseInsensitiveCompare(tagName) == .orderedSame }
+                        
+                        let updatedEncryptedIndexData = try CryptoHelper.encrypt(updatedIndexPayload, key: encryptionKey)
+                        searchIndex.encryptedIndexData = updatedEncryptedIndexData
+                    }
+                }
             }
-            viewContext.delete(tag)
+            
             try viewContext.save()
-            viewContext.refreshAllObjects()
+            noteIndexViewModel.refreshIndex(from: viewContext)
+            
         } catch {
             let nsError = error as NSError
             errorManager.handleCoreDataError(nsError, context: "Failed to delete tag")
@@ -232,7 +248,7 @@ struct TagBrowserView: View {
             return
         }
         let lower = trimmed.lowercased()
-        let matches = allTagNames.filter { $0.lowercased().hasPrefix(lower) }
+        let matches = allTags.filter { $0.lowercased().hasPrefix(lower) }
         if matches.isEmpty {
             showTagSuggestions = false
             tagSuggestions = []
@@ -258,7 +274,7 @@ struct TagBrowserView: View {
             filteredTags = []
         } else {
             isSearching = true
-            filteredTags = tags.filter { ( $0.name ?? "" ).localizedCaseInsensitiveContains(trimmed) }
+            filteredTags = allTags.filter { $0.localizedCaseInsensitiveContains(trimmed) }
         }
     }
 }

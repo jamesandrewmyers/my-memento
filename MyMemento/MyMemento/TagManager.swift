@@ -11,6 +11,50 @@ import OSLog
 /// Utility class for managing tag lifecycle and cleanup operations
 struct TagManager {
     
+    /// Extracts all unique tags from encrypted IndexPayload data
+    /// - Parameter indexPayloads: Array of IndexPayload containing encrypted tag data
+    /// - Returns: Array of unique tag names sorted alphabetically
+    static func extractTagsFromIndex(_ indexPayloads: [IndexPayload]) -> [String] {
+        var allTags = Set<String>()
+        
+        for indexPayload in indexPayloads {
+            for tag in indexPayload.tags {
+                let trimmedTag = tag.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmedTag.isEmpty {
+                    allTags.insert(trimmedTag)
+                }
+            }
+        }
+        
+        return Array(allTags).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+    
+    /// Counts notes for a specific tag from encrypted IndexPayload data
+    /// - Parameters:
+    ///   - tagName: The tag name to count notes for
+    ///   - indexPayloads: Array of IndexPayload containing encrypted tag data
+    /// - Returns: Number of notes that contain this tag
+    static func countNotes(for tagName: String, in indexPayloads: [IndexPayload]) -> Int {
+        return indexPayloads.filter { indexPayload in
+            indexPayload.tags.contains { tag in
+                tag.caseInsensitiveCompare(tagName) == .orderedSame
+            }
+        }.count
+    }
+    
+    /// Filters IndexPayload array to only include notes with the specified tag
+    /// - Parameters:
+    ///   - tagName: The tag name to filter by
+    ///   - indexPayloads: Array of IndexPayload containing encrypted tag data
+    /// - Returns: Array of IndexPayload that contain the specified tag
+    static func filterNotes(by tagName: String, in indexPayloads: [IndexPayload]) -> [IndexPayload] {
+        return indexPayloads.filter { indexPayload in
+            indexPayload.tags.contains { tag in
+                tag.caseInsensitiveCompare(tagName) == .orderedSame
+            }
+        }
+    }
+    
     /// Removes orphaned tags that have no associated notes
     /// - Parameters:
     ///   - tags: Array of tags to check for orphaned status

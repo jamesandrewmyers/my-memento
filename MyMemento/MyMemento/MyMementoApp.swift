@@ -10,6 +10,7 @@ import SwiftUI
 @main
 struct MyMementoApp: App {
     let persistenceController = PersistenceController.shared
+    @StateObject private var noteIndexViewModel = NoteIndexViewModel()
 
     init() {
         AttributedStringTransformer.register()
@@ -19,6 +20,10 @@ struct MyMementoApp: App {
         WindowGroup {
             ContentView()
                 .environment(\.managedObjectContext, persistenceController.container.viewContext)
+                .environmentObject(noteIndexViewModel)
+                .onAppear {
+                    noteIndexViewModel.loadIndex(from: persistenceController.container.viewContext)
+                }
         }
     }
 }

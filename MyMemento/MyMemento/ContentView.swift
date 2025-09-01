@@ -7,12 +7,22 @@
 
 import SwiftUI
 import CoreData
+import OSLog
+import Foundation
+
+enum SortOption: String, CaseIterable {
+    case createdAt = "Created"
+    case updatedAt = "Updated" 
+    case title = "Title"
+    case pinned = "Pinned"
+}
 
 struct ContentView: View {
     @Environment(\.managedObjectContext) private var viewContext
+    @EnvironmentObject private var noteIndexViewModel: NoteIndexViewModel
     @StateObject private var errorManager = ErrorManager.shared
     @State private var searchText = ""
-    @State private var filteredNotes: [Note] = []
+    @State private var filteredIndices: [IndexPayload] = []
     @State private var isSearching = false
     @State private var isDeleteMode = false
     @State private var navigationPath = NavigationPath()
@@ -20,60 +30,55 @@ struct ContentView: View {
     @State private var tagSuggestions: [String] = []
     @State private var justSelectedTag = false
     @State private var lastSearchTextAfterSelection = ""
-    @State private var sortByTitle = false
+    @State private var sortOption: SortOption = .createdAt
     @State private var showTagList = false
+    
+    private let logger = Logger(subsystem: "app.jam.ios.MyMemento", category: "ContentView")
 
-    @FetchRequest(
-        sortDescriptors: [
-            NSSortDescriptor(keyPath: \Note.isPinned, ascending: false),
-            NSSortDescriptor(keyPath: \Note.createdAt, ascending: false)
-        ],
-        animation: .default)
-    private var notes: FetchedResults<Note>
+
     
-    // Central Tag source for suggestions (avoids inferring from note text)
-    @FetchRequest(
-        sortDescriptors: [NSSortDescriptor(keyPath: \Tag.name, ascending: true)],
-        animation: .default)
-    private var tagObjects: FetchedResults<Tag>
-    
-    private var displayedNotes: [Note] {
-        let baseNotes = isSearching ? filteredNotes : Array(notes)
+    private var displayedIndices: [IndexPayload] {
+        let baseIndices = isSearching ? filteredIndices : noteIndexViewModel.indexPayloads
         
-        if sortByTitle {
-            return baseNotes.sorted { note1, note2 in
-                // First sort by pinned status
-                if note1.isPinned != note2.isPinned {
-                    return note1.isPinned && !note2.isPinned
+        return baseIndices.sorted { index1, index2 in
+            switch sortOption {
+            case .pinned:
+                if index1.pinned != index2.pinned {
+                    return index1.pinned && !index2.pinned
                 }
-                // Then sort by title
-                let title1 = note1.title ?? "Untitled"
-                let title2 = note2.title ?? "Untitled"
-                return title1.localizedCaseInsensitiveCompare(title2) == .orderedAscending
+                // Secondary sort by creation date for pinned items
+                return index1.createdAt > index2.createdAt
+                
+            case .title:
+                // First sort by pinned status, then by title
+                if index1.pinned != index2.pinned {
+                    return index1.pinned && !index2.pinned
+                }
+                return index1.title.localizedCaseInsensitiveCompare(index2.title) == .orderedAscending
+                
+            case .updatedAt:
+                // First sort by pinned status, then by update date
+                if index1.pinned != index2.pinned {
+                    return index1.pinned && !index2.pinned
+                }
+                return index1.updatedAt > index2.updatedAt
+                
+            case .createdAt:
+                // First sort by pinned status, then by creation date
+                if index1.pinned != index2.pinned {
+                    return index1.pinned && !index2.pinned
+                }
+                return index1.createdAt > index2.createdAt
             }
-        } else {
-            return baseNotes
         }
     }
     
     private var allTags: [String] {
-        // Build a case-insensitive, de-duplicated, non-empty list of tag names
-        var seen = Set<String>()
-        var unique: [String] = []
-        for name in tagObjects.compactMap({ $0.name?.trimmingCharacters(in: .whitespacesAndNewlines) }) {
-            if name.isEmpty { continue }
-            let key = name.lowercased()
-            if !seen.contains(key) {
-                seen.insert(key)
-                unique.append(name)
-            }
-        }
-        return unique.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+        return TagManager.extractTagsFromIndex(noteIndexViewModel.indexPayloads)
     }
     
-    private func tagsToString(_ tagSet: NSSet?) -> String {
-        guard let tagSet = tagSet as? Set<Tag> else { return "" }
-        return tagSet.compactMap { $0.name }.sorted().joined(separator: ", ")
+    private func tagsToString(_ tags: [String]) -> String {
+        return tags.sorted().joined(separator: ", ")
     }
 
     var body: some View {
@@ -146,19 +151,14 @@ struct ContentView: View {
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                     
-                    Button(action: { sortByTitle = false }) {
-                        Text("created")
-                            .font(.subheadline)
-                            .foregroundColor(sortByTitle ? .blue : .secondary)
+                    ForEach(SortOption.allCases, id: \.self) { option in
+                        Button(action: { sortOption = option }) {
+                            Text(option.rawValue.lowercased())
+                                .font(.subheadline)
+                                .foregroundColor(sortOption == option ? .blue : .secondary)
+                        }
+                        .buttonStyle(PlainButtonStyle())
                     }
-                    .buttonStyle(PlainButtonStyle())
-                    
-                    Button(action: { sortByTitle = true }) {
-                        Text("title")
-                            .font(.subheadline)
-                            .foregroundColor(sortByTitle ? .secondary : .blue)
-                    }
-                    .buttonStyle(PlainButtonStyle())
                     
                     Spacer()
                 }
@@ -166,17 +166,17 @@ struct ContentView: View {
                 .padding(.bottom, 8)
                 
                 List {
-                    if displayedNotes.isEmpty {
+                    if displayedIndices.isEmpty {
                         Text("(no notes)")
                             .foregroundColor(.secondary)
                             .italic()
                             .frame(maxWidth: .infinity, alignment: .center)
                             .listRowSeparator(.hidden)
                     } else {
-                        ForEach(displayedNotes, id: \.objectID) { note in
+                        ForEach(displayedIndices, id: \.id) { indexPayload in
                             HStack {
                                 if isDeleteMode {
-                                    Button(action: { deleteNote(note) }) {
+                                    Button(action: { deleteNoteFromIndex(indexPayload) }) {
                                         Image(systemName: "x.circle.fill")
                                             .foregroundColor(.red)
                                             .font(.title2)
@@ -184,21 +184,21 @@ struct ContentView: View {
                                     .buttonStyle(PlainButtonStyle())
                                 }
                                 
-                                NavigationLink(value: note) {
+                                NavigationLink(value: indexPayload) {
                                     VStack(alignment: .leading, spacing: 4) {
                                         HStack {
-                                            if note.isPinned {
+                                            if indexPayload.pinned {
                                                 Image(systemName: "pin.fill")
                                                     .foregroundColor(.orange)
                                                     .font(.caption)
                                             }
-                                            Text(note.title ?? "Untitled")
+                                            Text(indexPayload.title)
                                                 .font(.headline)
                                                 .foregroundColor(.primary)
                                             Spacer()
                                         }
                                         
-                                        let tagString = tagsToString(note.tags)
+                                        let tagString = tagsToString(indexPayload.tags)
                                         if !tagString.isEmpty {
                                             Text(tagString)
                                                 .font(.subheadline)
@@ -210,22 +210,26 @@ struct ContentView: View {
                                 .disabled(isDeleteMode)
                                 
                                 if !isDeleteMode {
-                                    Button(action: { togglePin(for: note) }) {
-                                        Image(systemName: note.isPinned ? "pin.slash" : "pin")
-                                            .foregroundColor(note.isPinned ? .orange : .gray)
+                                    Button(action: { togglePinForIndex(indexPayload) }) {
+                                        Image(systemName: indexPayload.pinned ? "pin.slash" : "pin")
+                                            .foregroundColor(indexPayload.pinned ? .orange : .gray)
                                             .font(.title3)
                                     }
                                     .buttonStyle(PlainButtonStyle())
                                 }
                             }
                         }
-                        .onDelete(perform: isDeleteMode ? nil : deleteNotes)
+                        .onDelete(perform: isDeleteMode ? nil : deleteIndices)
                     }
                 }
                 .navigationTitle("Notes")
             }
-            .navigationDestination(for: Note.self) { note in
-                NoteEditView(note: note)
+            .navigationDestination(for: IndexPayload.self) { indexPayload in
+                NoteEditView(indexPayload: indexPayload)
+                    .onDisappear {
+                        // Refresh index when returning from note editing
+                        noteIndexViewModel.refreshIndex(from: viewContext)
+                    }
             }
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -259,6 +263,20 @@ struct ContentView: View {
         }
     }
     
+    private func fetchNote(by id: UUID) -> Note? {
+        let request: NSFetchRequest<Note> = Note.fetchRequest()
+        request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
+        request.fetchLimit = 1
+        
+        do {
+            let notes = try viewContext.fetch(request)
+            return notes.first
+        } catch {
+            logger.error("Failed to fetch note with id \(id.uuidString): \(error.localizedDescription)")
+            return nil
+        }
+    }
+    
     private func toggleDeleteMode() {
         withAnimation {
             isDeleteMode.toggle()
@@ -272,31 +290,96 @@ struct ContentView: View {
         justSelectedTag = false
         lastSearchTextAfterSelection = ""
         isSearching = false
-        filteredNotes = []
+        filteredIndices = []
     }
     
-    private func togglePin(for note: Note) {
-        withAnimation {
-            note.isPinned.toggle()
-            
-            do {
-                try viewContext.save()
-                SyncService.shared.upload(notes: Array(notes))
-            } catch {
-                let nsError = error as NSError
-                errorManager.handleCoreDataError(nsError, context: "Failed to update note pin status")
+    private func performSearch() {
+        let trimmedSearchText = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedSearchText.isEmpty {
+            isSearching = false
+            filteredIndices = []
+        } else {
+            isSearching = true
+            filteredIndices = noteIndexViewModel.indexPayloads.filter { indexPayload in
+                // Search in title
+                let titleContains = indexPayload.title.localizedCaseInsensitiveContains(trimmedSearchText)
+                
+                // Search in summary (body content)
+                let summaryContains = indexPayload.summary.localizedCaseInsensitiveContains(trimmedSearchText)
+                
+                // Search in tags - handle both #tag and plain tag search
+                var tagsContains = false
+                if trimmedSearchText.hasPrefix("#") {
+                    let tagQuery = String(trimmedSearchText.dropFirst())
+                    tagsContains = indexPayload.tags.contains { tag in
+                        tag.localizedCaseInsensitiveContains(tagQuery)
+                    }
+                } else {
+                    // Also search tags without # prefix
+                    tagsContains = indexPayload.tags.contains { tag in
+                        tag.localizedCaseInsensitiveContains(trimmedSearchText)
+                    }
+                }
+                
+                return titleContains || summaryContains || tagsContains
             }
         }
     }
     
-    private func deleteNote(_ note: Note) {
+    private func togglePinForIndex(_ indexPayload: IndexPayload) {
+        guard let note = fetchNote(by: indexPayload.id) else { return }
+
+        withAnimation {
+            note.isPinned.toggle()
+
+            // Also update the SearchIndex
+            let searchIndexRequest: NSFetchRequest<SearchIndex> = SearchIndex.fetchRequest()
+            searchIndexRequest.predicate = NSPredicate(format: "id == %@", indexPayload.id as CVarArg)
+
+            do {
+                if let searchIndex = try viewContext.fetch(searchIndexRequest).first,
+                   let encryptedData = searchIndex.encryptedIndexData {
+                    
+                    let encryptionKey = try KeyManager.shared.getEncryptionKey()
+                    
+                    // Decrypt, update, re-encrypt
+                    var decryptedPayload = try CryptoHelper.decrypt(encryptedData, key: encryptionKey, as: IndexPayload.self)
+                    decryptedPayload.pinned = note.isPinned
+                    
+                    let encryptedIndexData = try CryptoHelper.encrypt(decryptedPayload, key: encryptionKey)
+                    searchIndex.encryptedIndexData = encryptedIndexData
+                }
+
+                try viewContext.save()
+                
+                // Refresh the index to reflect the pin status change
+                noteIndexViewModel.refreshIndex(from: viewContext)
+
+            } catch {
+                let nsError = error as NSError
+                errorManager.handleCoreDataError(nsError, context: "Failed to update note pin status or search index")
+            }
+        }
+    }
+        
+
+    
+    private func deleteNoteFromIndex(_ indexPayload: IndexPayload) {
+        guard let note = fetchNote(by: indexPayload.id) else { return }
+        
         withAnimation {
             // Capture tags before deleting the note
             let associatedTags = Array(note.tags as? Set<Tag> ?? Set<Tag>())
             
-            viewContext.delete(note)
+            // Also delete the corresponding SearchIndex
+            let searchIndexRequest: NSFetchRequest<SearchIndex> = SearchIndex.fetchRequest()
+            searchIndexRequest.predicate = NSPredicate(format: "id == %@", indexPayload.id as CVarArg)
             
             do {
+                let searchIndices = try viewContext.fetch(searchIndexRequest)
+                searchIndices.forEach(viewContext.delete)
+                
+                viewContext.delete(note)
                 try viewContext.save()
                 
                 // Clean up orphaned tags after the note is deleted and saved
@@ -304,7 +387,9 @@ struct ContentView: View {
                     TagManager.handleTagRemovedFromNote(tag, in: viewContext)
                 }
                 
-                SyncService.shared.upload(notes: Array(notes))
+                // Refresh the index
+                noteIndexViewModel.refreshIndex(from: viewContext)
+                
             } catch {
                 let nsError = error as NSError
                 errorManager.handleCoreDataError(nsError, context: "Failed to delete note")
@@ -343,107 +428,88 @@ struct ContentView: View {
                 showTagSuggestions = false
                 tagSuggestions = []
             } else {
-                tagSuggestions = allTags
                 showTagSuggestions = true
+                tagSuggestions = allTags
             }
             return
         }
         
-        let tagPrefix = String(currentWord.dropFirst()).lowercased()
+        // Filter tags based on partial input
+        let tagQuery = String(currentWord.dropFirst())
         let matchingTags = allTags.filter { tag in
-            tag.lowercased().hasPrefix(tagPrefix)
+            tag.localizedCaseInsensitiveContains(tagQuery)
         }
         
         if matchingTags.isEmpty {
             showTagSuggestions = false
             tagSuggestions = []
         } else {
-            tagSuggestions = matchingTags
             showTagSuggestions = true
+            tagSuggestions = matchingTags
         }
     }
     
     private func selectTag(_ tag: String) {
+        // Replace the current partial tag with the selected tag
         let words = searchText.split(separator: " ")
-        var newWords = words.dropLast()
+        var newWords = Array(words.dropLast())
         newWords.append("#\(tag)")
-        let newText = newWords.joined(separator: " ") + " "
-        searchText = newText
-        lastSearchTextAfterSelection = newText
+        
+        searchText = newWords.joined(separator: " ") + " "
+        lastSearchTextAfterSelection = searchText
+        
         showTagSuggestions = false
         tagSuggestions = []
         justSelectedTag = true
+        
+        // Trigger search with new tag
         performSearch()
-    }
-    
-    private func performSearch() {
-        let trimmedSearchText = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmedSearchText.isEmpty {
-            isSearching = false
-            filteredNotes = []
-        } else {
-            isSearching = true
-            filteredNotes = notes.filter { note in
-                let titleContains = (note.title ?? "").localizedCaseInsensitiveContains(trimmedSearchText)
-                let bodyContains = (note.richText?.string ?? "").localizedCaseInsensitiveContains(trimmedSearchText)
-                var tagsContains = false;
-                if trimmedSearchText.hasPrefix("#") {
-                    tagsContains = tagsToString(note.tags).localizedCaseInsensitiveContains(trimmedSearchText.dropFirst())
-                }
-                if titleContains {
-                    print("title contains")
-                }
-                if bodyContains {
-                    print("body contains")
-                }
-                if tagsContains {
-                    print("tags contains")
-                }
-                return titleContains || bodyContains || tagsContains;
-            }.sorted { note1, note2 in
-                if note1.isPinned != note2.isPinned {
-                    return note1.isPinned && !note2.isPinned
-                }
-                if sortByTitle {
-                    let title1 = note1.title ?? "Untitled"
-                    let title2 = note2.title ?? "Untitled"
-                    return title1.localizedCaseInsensitiveCompare(title2) == .orderedAscending
-                } else {
-                    return (note1.createdAt ?? Date()) > (note2.createdAt ?? Date())
-                }
-            }
-        }
     }
 
     private func addNote() {
-        let note = Note(context: viewContext)
-        note.id = UUID()
-        note.title = "New Note"
-        note.richText = NSAttributedString()
-        // Tags will be empty NSSet by default
-        note.createdAt = Date()
-        note.isPinned = false
-
-        do {
-            try viewContext.save()
-            SyncService.shared.upload(notes: Array(notes))
-            navigationPath.append(note)
-        } catch {
-            viewContext.delete(note)
-            let nsError = error as NSError
-            errorManager.handleCoreDataError(nsError, context: "Failed to save new note")
-        }
+        let noteId = UUID()
+        let now = Date()
+        
+        // Create a temporary IndexPayload for the new note
+        let newIndexPayload = IndexPayload(
+            id: noteId,
+            title: "New Note",
+            tags: [],
+            summary: "",
+            createdAt: now,
+            updatedAt: now,
+            pinned: false
+        )
+        
+        navigationPath.append(newIndexPayload)
     }
 
-    private func deleteNotes(offsets: IndexSet) {
+    private func deleteIndices(offsets: IndexSet) {
         withAnimation {
-            let notesToDelete = offsets.map { displayedNotes[$0] }
+            let indicesToDelete = offsets.map { displayedIndices[$0] }
             
             // Capture all tags from notes before deletion
             var allAssociatedTags = Set<Tag>()
-            for note in notesToDelete {
+            var notesToDelete: [Note] = []
+            
+            for indexPayload in indicesToDelete {
+                guard let note = fetchNote(by: indexPayload.id) else { continue }
+                notesToDelete.append(note)
                 if let tags = note.tags as? Set<Tag> {
                     allAssociatedTags.formUnion(tags)
+                }
+            }
+            
+            // Delete corresponding SearchIndex entities
+            for indexPayload in indicesToDelete {
+                let searchIndexRequest: NSFetchRequest<SearchIndex> = SearchIndex.fetchRequest()
+                searchIndexRequest.predicate = NSPredicate(format: "id == %@", indexPayload.id as CVarArg)
+                
+                do {
+                    let searchIndices = try viewContext.fetch(searchIndexRequest)
+                    searchIndices.forEach(viewContext.delete)
+                } catch {
+                    logger.error("Failed to fetch SearchIndex for deletion: \(error.localizedDescription)")
                 }
             }
             
@@ -457,15 +523,15 @@ struct ContentView: View {
                     TagManager.handleTagRemovedFromNote(tag, in: viewContext)
                 }
                 
-                SyncService.shared.upload(notes: Array(notes))
+                // Refresh the index
+                noteIndexViewModel.refreshIndex(from: viewContext)
+                
             } catch {
                 let nsError = error as NSError
                 errorManager.handleCoreDataError(nsError, context: "Failed to delete notes")
             }
         }
     }
-
-
 }
 
 private let itemFormatter: DateFormatter = {

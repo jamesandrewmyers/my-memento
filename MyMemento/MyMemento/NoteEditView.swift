@@ -9,13 +9,16 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 import CoreData
+import Foundation
 
 struct NoteEditView: View {
     @Environment(\.managedObjectContext) private var viewContext
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var noteIndexViewModel: NoteIndexViewModel
     @StateObject private var errorManager = ErrorManager.shared
     
-    @ObservedObject var note: Note
+    let indexPayload: IndexPayload
+    @State private var note: Note?
     
     @FetchRequest(
         sortDescriptors: [NSSortDescriptor(keyPath: \Note.createdAt, ascending: false)],
@@ -38,7 +41,6 @@ struct NoteEditView: View {
     @State private var showLinkDialog = false
     @State private var linkDisplayLabel = ""
     @State private var linkURL = ""
-    // Share state not needed when presenting UIActivityViewController directly
     
     var body: some View {
         Form {
@@ -82,8 +84,8 @@ struct NoteEditView: View {
             
             ToolbarItem(placement: .principal) {
                 Button(action: togglePin) {
-                    Image(systemName: note.isPinned ? "pin.slash" : "pin")
-                        .foregroundColor(note.isPinned ? .orange : .gray)
+                    Image(systemName: note?.isPinned == true ? "pin.slash" : "pin")
+                        .foregroundColor(note?.isPinned == true ? .orange : .gray)
                 }
             }
             
@@ -163,9 +165,55 @@ struct NoteEditView: View {
     }
     
     private func loadNoteData() {
-        title = note.title ?? ""
-        tags = tagsToString(note.tags)
-        noteBody = note.richText ?? NSAttributedString()
+        // Fetch the Note entity by id
+        let request: NSFetchRequest<Note> = Note.fetchRequest()
+        request.predicate = NSPredicate(format: "id == %@", indexPayload.id as CVarArg)
+        request.fetchLimit = 1
+        
+        do {
+            let notes = try viewContext.fetch(request)
+            if let fetchedNote = notes.first {
+                note = fetchedNote
+                
+                // Try to decrypt existing data first
+                if let encryptedData = fetchedNote.encryptedData {
+                    do {
+                        let encryptionKey = try KeyManager.shared.getEncryptionKey()
+                        let decryptedPayload = try CryptoHelper.decrypt(encryptedData, key: encryptionKey, as: NotePayload.self)
+                        
+                        title = decryptedPayload.title
+                        tags = decryptedPayload.tags.joined(separator: ", ")
+                        noteBody = decryptedPayload.body.attributedString
+                        return
+                    } catch {
+                        print("Failed to decrypt note data, falling back to legacy fields: \(error)")
+                    }
+                }
+                
+                // Fallback to legacy unencrypted fields
+                title = fetchedNote.title ?? ""
+                tags = tagsToString(fetchedNote.tags)
+                noteBody = fetchedNote.richText ?? NSAttributedString()
+            } else {
+                // Create new Note if it doesn't exist (for new notes from addNote)
+                let newNote = Note(context: viewContext)
+                newNote.id = indexPayload.id
+                newNote.createdAt = indexPayload.createdAt
+                newNote.isPinned = indexPayload.pinned
+                note = newNote
+                
+                // Initialize with IndexPayload data
+                title = indexPayload.title
+                tags = indexPayload.tags.joined(separator: ", ")
+                noteBody = NSAttributedString()
+            }
+        } catch {
+            print("Failed to fetch note: \(error)")
+            // Initialize with IndexPayload data as fallback
+            title = indexPayload.title
+            tags = indexPayload.tags.joined(separator: ", ")
+            noteBody = NSAttributedString()
+        }
     }
     
     private func tagsToString(_ tagSet: NSSet?) -> String {
@@ -178,23 +226,25 @@ struct NoteEditView: View {
         var tagSet = Set<Tag>()
         
         for tagName in tagNames {
-            if !tagName.isEmpty {
-                // Try to find existing tag
-                let fetchRequest: NSFetchRequest<Tag> = Tag.fetchRequest()
-                fetchRequest.predicate = NSPredicate(format: "name == %@", tagName)
-                
-                let existingTag = try? viewContext.fetch(fetchRequest).first
-                
-                if let existingTag = existingTag {
+            guard !tagName.isEmpty else { continue }
+            
+            // Find existing tag or create new one
+            let request: NSFetchRequest<Tag> = Tag.fetchRequest()
+            request.predicate = NSPredicate(format: "name == %@", tagName)
+            
+            do {
+                let existingTags = try viewContext.fetch(request)
+                if let existingTag = existingTags.first {
                     tagSet.insert(existingTag)
                 } else {
-                    // Create new tag
                     let newTag = Tag(context: viewContext)
                     newTag.id = UUID()
                     newTag.name = tagName
                     newTag.createdAt = Date()
                     tagSet.insert(newTag)
                 }
+            } catch {
+                print("Error fetching/creating tag: \(error)")
             }
         }
         
@@ -202,77 +252,158 @@ struct NoteEditView: View {
     }
     
     private func saveNote() {
-        note.title = title
+        // Capture current state immediately
+        let currentTitle = title
+        let currentTags = tags
+        let currentNoteBody = noteBody
+        guard let noteToSave = note else { return }
         
-        // Capture existing tags before removing them for cleanup
-        let existingTags = Array(note.tags as? Set<Tag> ?? Set<Tag>())
-        
-        // Clear existing tags
-        note.removeFromTags(note.tags ?? NSSet())
-        
-        // Add new tags
-        let newTags = stringToTags(tags)
-        for tag in newTags {
-            note.addToTags(tag)
-        }
-        
-        note.richText = noteBody
-        print("=== PRE-SAVE VALIDATION ===")
-          print("Note ID: \(note.id?.description ?? "nil")")
-          print("Note title: \(note.title ?? "nil")")
-          print("Note richText is nil: \(note.richText == nil)")
-          if let richText = note.richText {
-              print("Note richText length: \(richText.length)")
-              print("Note richText string: '\(richText.string)'")
-          } else {
-              print("Note richText is completely nil!")
-          }
-          print("Note createdAt: \(note.createdAt?.description ?? "nil")")
-          print("Note isPinned: \(note.isPinned)")
-          print("===========================")
-        do {
-            try viewContext.save()
-            
-            // Clean up orphaned tags from the previously existing tags
-            for tag in existingTags {
-                TagManager.handleTagRemovedFromNote(tag, in: viewContext)
+        // Perform save operation completely async
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                // Get encryption key
+                let encryptionKey = try KeyManager.shared.getEncryptionKey()
+                
+                // Parse tags from string
+                let tagNames = currentTags.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+                
+                // Create current timestamp for updates
+                let now = Date()
+                
+                // Build NotePayload from captured state first (off main thread)
+                let notePayload = NotePayload(
+                    title: currentTitle,
+                    body: NSAttributedStringWrapper(currentNoteBody),
+                    tags: tagNames,
+                    createdAt: noteToSave.createdAt ?? now, // Preserve original creation date
+                    updatedAt: now,
+                    pinned: noteToSave.isPinned
+                )
+                
+                // Encrypt NotePayload
+                let encryptedNoteData = try CryptoHelper.encrypt(notePayload, key: encryptionKey)
+                
+                // Build IndexPayload for search
+                let summary = currentNoteBody.string.prefix(100).trimmingCharacters(in: .whitespacesAndNewlines)
+                
+                // Perform Core Data operations on main queue
+                DispatchQueue.main.async {
+                    do {
+                        // Ensure note has an ID
+                        if noteToSave.id == nil {
+                            noteToSave.id = UUID()
+                        }
+                        
+                        // Store encrypted data
+                        noteToSave.encryptedData = encryptedNoteData
+                        
+                        // Find or create matching SearchIndex entity
+                        let searchIndexRequest: NSFetchRequest<SearchIndex> = SearchIndex.fetchRequest()
+                        searchIndexRequest.predicate = NSPredicate(format: "id == %@", noteToSave.id! as CVarArg)
+                        
+                        let searchIndex: SearchIndex
+                        if let existingIndex = try self.viewContext.fetch(searchIndexRequest).first {
+                            searchIndex = existingIndex
+                        } else {
+                            searchIndex = SearchIndex(context: self.viewContext)
+                            searchIndex.id = noteToSave.id!
+                        }
+                        
+                        // Build IndexPayload with correct ID
+                        let indexPayload = IndexPayload(
+                            id: noteToSave.id!,
+                            title: currentTitle,
+                            tags: tagNames,
+                            summary: String(summary),
+                            createdAt: noteToSave.createdAt ?? now, // Preserve original creation date
+                            updatedAt: now,
+                            pinned: noteToSave.isPinned
+                        )
+                        
+                        // Encrypt IndexPayload and store
+                        let encryptedIndexData = try CryptoHelper.encrypt(indexPayload, key: encryptionKey)
+                        searchIndex.encryptedIndexData = encryptedIndexData
+                        
+                        print("=== SAVE DEBUG ===")
+                        print("Note ID: \(noteToSave.id?.uuidString ?? "nil")")
+                        print("Encrypted data size: \(encryptedNoteData.count) bytes")
+                        print("SearchIndex ID: \(searchIndex.id?.uuidString ?? "nil")")
+                        print("Encrypted index size: \(encryptedIndexData.count) bytes")
+                        print("==================")
+                        
+                        // Save the Core Data context (directly on main queue)
+                        try self.viewContext.save()
+                        
+                        print("=== SAVE SUCCESS ===")
+                        
+                        // Refresh the index to reflect tag changes
+                        self.noteIndexViewModel.refreshIndex(from: self.viewContext)
+                        
+                        // Upload notes for sync (will need to be updated for encrypted data)
+                        SyncService.shared.upload(notes: Array(self.allNotes))
+                        
+                        self.dismiss()
+                        
+                    } catch {
+                        let nsError = error as NSError
+                        print("=== CORE DATA SAVE ERROR ===")
+                        print("Error: \(nsError)")
+                        print("Domain: \(nsError.domain)")
+                        print("Code: \(nsError.code)")
+                        print("UserInfo: \(nsError.userInfo)")
+                        print("=============================")
+                        self.errorManager.handleCoreDataError(nsError, context: "Failed to save encrypted note")
+                    }
+                }
+                
+            } catch {
+                DispatchQueue.main.async {
+                    let nsError = error as NSError
+                    print("=== ENCRYPTION ERROR ===")
+                    print("Error: \(nsError)")
+                    print("Domain: \(nsError.domain)")
+                    print("Code: \(nsError.code)")
+                    print("=========================")
+                    self.errorManager.handleCoreDataError(nsError, context: "Failed to encrypt note data")
+                }
             }
-            
-            SyncService.shared.upload(notes: Array(allNotes))
-            dismiss()
-        } catch {
-            let nsError = error as NSError
-            print("=== DETAILED SAVE ERROR ===")
-             print("Error: \(nsError)")
-             print("Domain: \(nsError.domain)")
-             print("Code: \(nsError.code)")
-             print("UserInfo:")
-             for (key, value) in nsError.userInfo {
-                 print("  \(key): \(value)")
-             }
-             if let detailedErrors = nsError.userInfo[NSDetailedErrorsKey] as?
-         [NSError] {
-                 print("Detailed Errors:")
-                 for detailError in detailedErrors {
-                     print("  - \(detailError)")
-                 }
-             }
-             print("===========================")
-            errorManager.handleCoreDataError(nsError, context: "Failed to save note")
         }
     }
     
     private func togglePin() {
-        note.isPinned.toggle()
-        
+        guard let noteToSave = note else { return }
+        noteToSave.isPinned.toggle()
+
+        // Also update the SearchIndex
+        let searchIndexRequest: NSFetchRequest<SearchIndex> = SearchIndex.fetchRequest()
+        searchIndexRequest.predicate = NSPredicate(format: "id == %@", noteToSave.id! as CVarArg)
+
         do {
+            if let searchIndex = try viewContext.fetch(searchIndexRequest).first,
+               let encryptedData = searchIndex.encryptedIndexData {
+                
+                let encryptionKey = try KeyManager.shared.getEncryptionKey()
+                
+                // Decrypt, update, re-encrypt
+                var decryptedPayload = try CryptoHelper.decrypt(encryptedData, key: encryptionKey, as: IndexPayload.self)
+                decryptedPayload.pinned = noteToSave.isPinned
+                
+                let encryptedIndexData = try CryptoHelper.encrypt(decryptedPayload, key: encryptionKey)
+                searchIndex.encryptedIndexData = encryptedIndexData
+            }
+
             try viewContext.save()
+            
+            // Refresh the index to reflect the pin status change
+            noteIndexViewModel.refreshIndex(from: viewContext)
+            
             SyncService.shared.upload(notes: Array(allNotes))
         } catch {
             let nsError = error as NSError
-            errorManager.handleCoreDataError(nsError, context: "Failed to update note pin status")
+            errorManager.handleCoreDataError(nsError, context: "Failed to update note pin status or search index")
         }
     }
+
     
     private func createLink() {
         guard let editorCoordinator = editorCoordinator else { return }

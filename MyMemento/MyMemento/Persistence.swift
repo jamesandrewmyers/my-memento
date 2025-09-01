@@ -17,37 +17,67 @@ struct PersistenceController {
         let result = PersistenceController(inMemory: true)
         let viewContext = result.container.viewContext
         
-        // Create sample tags
-        let sampleTag = Tag(context: viewContext)
-        sampleTag.id = UUID()
-        sampleTag.name = "sample"
-        sampleTag.createdAt = Date()
-        
-        let noteTag = Tag(context: viewContext)
-        noteTag.id = UUID()
-        noteTag.name = "note"
-        noteTag.createdAt = Date()
-        
-        for i in 0..<10 {
-            let newNote = Note(context: viewContext)
-            newNote.id = UUID()
-            newNote.title = "Sample Note \(i + 1)"
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: 16),
-                .foregroundColor: UIColor.label
-            ]
-            newNote.richText = NSAttributedString(string: "This is the body of sample note \(i + 1)", attributes: attributes)
-            newNote.createdAt = Date()
-            newNote.addToTags(sampleTag)
-            newNote.addToTags(noteTag)
-        }
         do {
+            // Get encryption key for preview data
+            let encryptionKey = try KeyManager.shared.getEncryptionKey()
+            
+            // Create 3 preview notes with encrypted storage
+            for i in 0..<3 {
+                let note = Note(context: viewContext)
+                note.id = UUID()
+                
+                let now = Date().addingTimeInterval(-Double(i * 1800)) // Stagger by 30 minutes
+                
+                // Create attributed string for the note body
+                let attributes: [NSAttributedString.Key: Any] = [
+                    .font: UIFont.systemFont(ofSize: 16),
+                    .foregroundColor: UIColor.label
+                ]
+                let attributedBody = NSAttributedString(
+                    string: "This is the body content of preview note \(i + 1)", 
+                    attributes: attributes
+                )
+                
+                // Build NotePayload
+                let notePayload = NotePayload(
+                    title: "Preview Note \(i + 1)",
+                    body: NSAttributedStringWrapper(attributedBody),
+                    tags: ["preview", "sample"],
+                    createdAt: now,
+                    updatedAt: now,
+                    pinned: i == 0
+                )
+                
+                // Encrypt and store NotePayload
+                let encryptedNoteData = try CryptoHelper.encrypt(notePayload, key: encryptionKey)
+                note.encryptedData = encryptedNoteData
+                
+                // Build IndexPayload for search
+                let indexPayload = IndexPayload(
+                    id: note.id!,
+                    title: "Preview Note \(i + 1)",
+                    tags: ["preview", "sample"],
+                    summary: "This is the body content of preview note \(i + 1)",
+                    createdAt: now,
+                    updatedAt: now,
+                    pinned: i == 0
+                )
+                
+                // Create SearchIndex entity
+                let searchIndex = SearchIndex(context: viewContext)
+                searchIndex.id = note.id!
+                
+                // Encrypt and store IndexPayload
+                let encryptedIndexData = try CryptoHelper.encrypt(indexPayload, key: encryptionKey)
+                searchIndex.encryptedIndexData = encryptedIndexData
+            }
+            
             try viewContext.save()
         } catch {
             // Log preview data creation failure - this is non-critical for app functionality
             let logger = Logger(subsystem: "app.jam.ios.MyMemento", category: "Persistence")
             let nsError = error as NSError
-            logger.error("Failed to save preview data: \(nsError.localizedDescription) - Code: \(nsError.code)")
+            logger.error("Failed to save encrypted preview data: \(nsError.localizedDescription) - Code: \(nsError.code)")
             // Don't crash for preview data - the app can function without sample data
         }
         return result
@@ -114,89 +144,84 @@ struct PersistenceController {
             guard existingNotesCount == 0 else { return }
             
             let logger = Logger(subsystem: "app.jam.ios.MyMemento", category: "Persistence")
-            logger.info("DEBUG_MODE: Creating example notes for empty storage")
+            logger.info("DEBUG_MODE: Creating example notes for empty storage using encrypted format")
             
-            // Create example tags first
-            let welcomeTag = Tag(context: context)
-            welcomeTag.id = UUID()
-            welcomeTag.name = "welcome"
-            welcomeTag.createdAt = Date()
-            
-            let gettingStartedTag = Tag(context: context)
-            gettingStartedTag.id = UUID()
-            gettingStartedTag.name = "getting-started"
-            gettingStartedTag.createdAt = Date()
-            
-            let workTag = Tag(context: context)
-            workTag.id = UUID()
-            workTag.name = "work"
-            workTag.createdAt = Date()
-            
-            let meetingsTag = Tag(context: context)
-            meetingsTag.id = UUID()
-            meetingsTag.name = "meetings"
-            meetingsTag.createdAt = Date()
-            
-            let projectAlphaTag = Tag(context: context)
-            projectAlphaTag.id = UUID()
-            projectAlphaTag.name = "project-alpha"
-            projectAlphaTag.createdAt = Date()
-            
-            let creativeTag = Tag(context: context)
-            creativeTag.id = UUID()
-            creativeTag.name = "creative"
-            creativeTag.createdAt = Date()
-            
-            let writingTag = Tag(context: context)
-            writingTag.id = UUID()
-            writingTag.name = "writing"
-            writingTag.createdAt = Date()
-            
-            let ideasTag = Tag(context: context)
-            ideasTag.id = UUID()
-            ideasTag.name = "ideas"
-            ideasTag.createdAt = Date()
+            // Get encryption key
+            let encryptionKey = try KeyManager.shared.getEncryptionKey()
             
             // Create 3 example notes with different content
             let exampleNotes = [
                 (title: "Welcome to MyMemento", 
                  body: "This is your personal note-taking app. You can create, edit, and organize your thoughts here. Use tags to categorize your notes and search to find them quickly.",
-                 tags: [welcomeTag, gettingStartedTag]),
+                 tags: ["welcome", "getting-started"],
+                 pinned: true),
                  
                 (title: "Meeting Notes - Project Alpha", 
                  body: "Discussed the new features for Q4:\n• Implement user authentication\n• Add export functionality\n• Improve search capabilities\n\nNext meeting: Friday 2PM",
-                 tags: [workTag, meetingsTag, projectAlphaTag]),
+                 tags: ["work", "meetings", "project-alpha"],
+                 pinned: false),
                  
                 (title: "Book Ideas", 
                  body: "Random thoughts for the novel I want to write:\n\n- Character: A detective who can see memories\n- Setting: Near-future cyberpunk city\n- Plot twist: The memories aren't real\n\nNeed to research: Memory implantation technology",
-                 tags: [creativeTag, writingTag, ideasTag])
+                 tags: ["creative", "writing", "ideas"],
+                 pinned: false)
             ]
             
             for (index, noteData) in exampleNotes.enumerated() {
                 let note = Note(context: context)
                 note.id = UUID()
-                note.title = noteData.title
+                
+                let now = Date().addingTimeInterval(-Double(index * 3600)) // Stagger creation times by 1 hour each
+                
+                // Create NSAttributedString with basic formatting
                 let attributes: [NSAttributedString.Key: Any] = [
                     .font: UIFont.systemFont(ofSize: 16),
                     .foregroundColor: UIColor.label
                 ]
-                note.richText = NSAttributedString(string: noteData.body, attributes: attributes)
-                note.createdAt = Date().addingTimeInterval(-Double(index * 3600)) // Stagger creation times by 1 hour each
-                note.isPinned = (index == 0) // Pin the first note (Welcome) as an example
+                let attributedBody = NSAttributedString(string: noteData.body, attributes: attributes)
                 
-                // Add tags to the note
-                for tag in noteData.tags {
-                    note.addToTags(tag)
-                }
+                // Build NotePayload
+                let notePayload = NotePayload(
+                    title: noteData.title,
+                    body: NSAttributedStringWrapper(attributedBody),
+                    tags: noteData.tags,
+                    createdAt: now,
+                    updatedAt: now,
+                    pinned: noteData.pinned
+                )
+                
+                // Encrypt and store NotePayload
+                let encryptedNoteData = try CryptoHelper.encrypt(notePayload, key: encryptionKey)
+                note.encryptedData = encryptedNoteData
+                
+                // Build IndexPayload for search
+                let summary = noteData.body.prefix(100).trimmingCharacters(in: .whitespacesAndNewlines)
+                let indexPayload = IndexPayload(
+                    id: note.id!,
+                    title: noteData.title,
+                    tags: noteData.tags,
+                    summary: String(summary),
+                    createdAt: now,
+                    updatedAt: now,
+                    pinned: noteData.pinned
+                )
+                
+                // Create SearchIndex entity
+                let searchIndex = SearchIndex(context: context)
+                searchIndex.id = note.id!
+                
+                // Encrypt and store IndexPayload
+                let encryptedIndexData = try CryptoHelper.encrypt(indexPayload, key: encryptionKey)
+                searchIndex.encryptedIndexData = encryptedIndexData
             }
             
             try context.save()
-            logger.info("DEBUG_MODE: Successfully created \(exampleNotes.count) example notes")
+            logger.info("DEBUG_MODE: Successfully created \(exampleNotes.count) encrypted example notes")
             
         } catch {
             let logger = Logger(subsystem: "app.jam.ios.MyMemento", category: "Persistence")
             let nsError = error as NSError
-            logger.error("DEBUG_MODE: Failed to create example notes: \(nsError.localizedDescription)")
+            logger.error("DEBUG_MODE: Failed to create encrypted example notes: \(nsError.localizedDescription)")
         }
     }
 }

@@ -998,6 +998,34 @@ extension RichTextEditorView: UITextViewDelegate {
             textView.selectedRange = currentSelection
         }
     }
+    
+    // MARK: - Hyperlink Interaction Override
+    func textView(_ textView: UITextView, shouldInteractWith URL: URL, in characterRange: NSRange, interaction: UITextItemInteraction) -> Bool {
+        // Override tap+hold behavior on hyperlinks to show custom link editor
+        if interaction == .presentActions {
+            // Get the link text for pre-population
+            let linkText = (textView.attributedText.string as NSString).substring(with: characterRange)
+            
+            // Set selection to the link range for editing
+            textView.selectedRange = characterRange
+            
+            // Trigger the link dialog with existing link data via notification
+            NotificationCenter.default.post(
+                name: NSNotification.Name("EditHyperlink"),
+                object: nil,
+                userInfo: [
+                    "displayLabel": linkText,
+                    "url": URL.absoluteString
+                ]
+            )
+            
+            // Return false to prevent the default system dialog
+            return false
+        }
+        
+        // Allow normal tap behavior (opening links)
+        return true
+    }
 }
 
 // MARK: - SwiftUI Wrapper

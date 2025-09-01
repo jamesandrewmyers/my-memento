@@ -91,6 +91,15 @@ struct NoteEditView: View {
         .onAppear {
             loadNoteData()
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("EditHyperlink"))) { notification in
+            if let userInfo = notification.userInfo,
+               let displayLabel = userInfo["displayLabel"] as? String,
+               let url = userInfo["url"] as? String {
+                linkDisplayLabel = displayLabel
+                linkURL = url
+                showLinkDialog = true
+            }
+        }
         .alert("Error", isPresented: $errorManager.showError) {
             Button("OK") { }
         } message: {

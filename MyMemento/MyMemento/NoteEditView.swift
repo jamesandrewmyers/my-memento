@@ -295,15 +295,18 @@ struct NoteEditView: View {
         do {
             let htmlData = try content.data(
                 from: NSRange(location: 0, length: content.length),
-                documentAttributes: [.documentType: NSAttributedString.DocumentType.html]
+                documentAttributes: [
+                    .documentType: NSAttributedString.DocumentType.html,
+                    .characterEncoding: NSNumber(value: String.Encoding.utf8.rawValue)
+                ]
             )
-            let htmlString = String(data: htmlData, encoding: .utf8) ?? ""
             let fileNameBase = (title.isEmpty ? "Note" : title)
                 .replacingOccurrences(of: "[\\/:\n\r\t]+", with: " ", options: .regularExpression)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let suggestedName = "\(fileNameBase.isEmpty ? "Note" : fileNameBase).html"
             let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(suggestedName)
-            try htmlString.write(to: tempURL, atomically: true, encoding: .utf8)
+            // Write the HTML Data directly to preserve encoding and formatting
+            try htmlData.write(to: tempURL, options: .atomic)
             return (tempURL, htmlData, suggestedName)
         } catch {
             errorManager.handleError(error, context: "Failed to export note as HTML")

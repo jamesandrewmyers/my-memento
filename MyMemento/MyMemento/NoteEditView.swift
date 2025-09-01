@@ -6,6 +6,8 @@
 //
 
 import SwiftUI
+import UIKit
+import UniformTypeIdentifiers
 import CoreData
 
 struct NoteEditView: View {
@@ -36,6 +38,7 @@ struct NoteEditView: View {
     @State private var showLinkDialog = false
     @State private var linkDisplayLabel = ""
     @State private var linkURL = ""
+    // Share state not needed when presenting UIActivityViewController directly
     
     var body: some View {
         Form {
@@ -81,6 +84,12 @@ struct NoteEditView: View {
                 Button(action: togglePin) {
                     Image(systemName: note.isPinned ? "pin.slash" : "pin")
                         .foregroundColor(note.isPinned ? .orange : .gray)
+                }
+            }
+            
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(action: exportNoteAndPresentShare) {
+                    Image(systemName: "square.and.arrow.up")
                 }
             }
             
@@ -273,7 +282,65 @@ struct NoteEditView: View {
         linkDisplayLabel = ""
         linkURL = ""
     }
+    
+    private func exportNoteAndPresentShare() {
+        guard let generated = generateHTMLTempFile() else { return }
+        // Present standard iOS share sheet with a real file URL
+        presentShareSheet(for: generated.url)
+    }
+
+    private func generateHTMLTempFile() -> (url: URL, data: Data, name: String)? {
+        let content = noteBody
+        guard content.length > 0 else { return nil }
+        do {
+            let htmlData = try content.data(
+                from: NSRange(location: 0, length: content.length),
+                documentAttributes: [.documentType: NSAttributedString.DocumentType.html]
+            )
+            let htmlString = String(data: htmlData, encoding: .utf8) ?? ""
+            let fileNameBase = (title.isEmpty ? "Note" : title)
+                .replacingOccurrences(of: "[\\/:\n\r\t]+", with: " ", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let suggestedName = "\(fileNameBase.isEmpty ? "Note" : fileNameBase).html"
+            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(suggestedName)
+            try htmlString.write(to: tempURL, atomically: true, encoding: .utf8)
+            return (tempURL, htmlData, suggestedName)
+        } catch {
+            errorManager.handleError(error, context: "Failed to export note as HTML")
+            return nil
+        }
+    }
+
+    private func presentShareSheet(for url: URL) {
+        let activityVC = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        if let popover = activityVC.popoverPresentationController {
+            popover.sourceView = UIApplication.shared.windows.first { $0.isKeyWindow }
+            if let sourceView = popover.sourceView {
+                popover.sourceRect = CGRect(x: sourceView.bounds.midX, y: sourceView.bounds.midY, width: 0, height: 0)
+                popover.permittedArrowDirections = []
+            }
+        }
+        topViewController()?.present(activityVC, animated: true)
+    }
+
+    private func topViewController(base: UIViewController? = UIApplication.shared.connectedScenes
+        .compactMap { ($0 as? UIWindowScene)?.keyWindow }
+        .first?.rootViewController) -> UIViewController? {
+        if let nav = base as? UINavigationController {
+            return topViewController(base: nav.visibleViewController)
+        }
+        if let tab = base as? UITabBarController, let selected = tab.selectedViewController {
+            return topViewController(base: selected)
+        }
+        if let presented = base?.presentedViewController {
+            return topViewController(base: presented)
+        }
+        return base
+    }
 }
+
+// MARK: - UIActivityItemSource for HTML files
+// No custom UIActivityItemSource; using the file URL directly yields the broadest set of system share targets
 
 // MARK: - Formatting Bar (visual only)
 
@@ -433,7 +500,19 @@ extension NoteEditView {
     }
 }
 
-// MARK: - Custom Button Styles
+// MARK: - Share Sheet Wrapper + Custom Button Styles
+
+// Simple UIKit share sheet wrapper
+struct ActivityView: UIViewControllerRepresentable {
+    let activityItems: [Any]
+    var applicationActivities: [UIActivity]? = nil
+    
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: activityItems, applicationActivities: applicationActivities)
+    }
+    
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) { }
+}
 
 struct FormattingButtonStyle: ButtonStyle {
     let isActive: Bool

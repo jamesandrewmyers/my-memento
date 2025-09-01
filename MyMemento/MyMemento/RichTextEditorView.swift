@@ -15,7 +15,7 @@ class RichTextEditorView: UIView {
     private let defaultTextColor = UIColor.label
     
     var onTextChange: ((NSAttributedString) -> Void)?
-    var onFormattingChange: ((Bool, Bool, Bool, Bool, Bool, Bool, Bool, Bool) -> Void)?
+    var onFormattingChange: ((Bool, Bool, Bool, Bool, Bool, Bool, Bool, Bool, Bool) -> Void)?
     
     // Helper struct for list continuation
     private struct ListContinuation {
@@ -102,6 +102,38 @@ class RichTextEditorView: UIView {
                 typingAttributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
             }
             
+            textView.typingAttributes = typingAttributes
+        }
+        notifyFormattingChange()
+    }
+
+    func toggleStrikethrough() {
+        guard let textView = textView else { return }
+        let selectedRange = textView.selectedRange
+        if selectedRange.length > 0 {
+            let mutableText = NSMutableAttributedString(attributedString: textView.attributedText)
+            let originalSelection = selectedRange
+            var hasStrike = false
+            mutableText.enumerateAttribute(.strikethroughStyle, in: selectedRange) { value, _, _ in
+                if let v = value as? Int, v != 0 { hasStrike = true }
+            }
+            if hasStrike {
+                mutableText.removeAttribute(.strikethroughStyle, range: selectedRange)
+            } else {
+                mutableText.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: selectedRange)
+            }
+            textView.attributedText = mutableText
+            onTextChange?(mutableText)
+            DispatchQueue.main.async { self.textView.selectedRange = originalSelection }
+        } else {
+            var typingAttributes = textView.typingAttributes
+            let currentStrike = typingAttributes[.strikethroughStyle] as? Int
+            let hasStrike = currentStrike != nil && currentStrike != 0
+            if hasStrike {
+                typingAttributes.removeValue(forKey: .strikethroughStyle)
+            } else {
+                typingAttributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+            }
             textView.typingAttributes = typingAttributes
         }
         notifyFormattingChange()
@@ -536,18 +568,18 @@ class RichTextEditorView: UIView {
     
     // MARK: - Formatting State Detection
     
-    func getCurrentFormattingState() -> (isBold: Bool, isItalic: Bool, isUnderlined: Bool, isBulletList: Bool, isNumberedList: Bool, isH1: Bool, isH2: Bool, isH3: Bool) {
-        guard let textView = textView else { return (false, false, false, false, false, false, false, false) }
+    func getCurrentFormattingState() -> (isBold: Bool, isItalic: Bool, isUnderlined: Bool, isStrikethrough: Bool, isBulletList: Bool, isNumberedList: Bool, isH1: Bool, isH2: Bool, isH3: Bool) {
+        guard let textView = textView else { return (false, false, false, false, false, false, false, false, false) }
         
         let selectedRange = textView.selectedRange
-        guard let attributedText = textView.attributedText else { return (false, false, false, false, false, false, false, false) }
+        guard let attributedText = textView.attributedText else { return (false, false, false, false, false, false, false, false, false) }
         
         if selectedRange.length > 0 {
             // Check formatting of selected text - use first character as representative
             let basicFormatting = getFormattingAtLocation(selectedRange.location, in: attributedText)
             let listFormatting = getListFormattingInRange(selectedRange, in: attributedText)
             let headerFormatting = getHeaderFormattingAtLocation(selectedRange.location, in: attributedText)
-            return (basicFormatting.isBold, basicFormatting.isItalic, basicFormatting.isUnderlined, 
+            return (basicFormatting.isBold, basicFormatting.isItalic, basicFormatting.isUnderlined, basicFormatting.isStrikethrough,
                    listFormatting.isBulletList, listFormatting.isNumberedList,
                    headerFormatting.isH1, headerFormatting.isH2, headerFormatting.isH3)
         } else {
@@ -556,25 +588,27 @@ class RichTextEditorView: UIView {
             let isBold = isAttributeBold(typingAttributes)
             let isItalic = isAttributeItalic(typingAttributes)
             let isUnderlined = isAttributeUnderlined(typingAttributes)
+            let isStrikethrough = isAttributeStrikethrough(typingAttributes)
             let headerFormatting = getHeaderFormattingFromTypingAttributes(typingAttributes)
             
             // Check current line for list formatting
             let listFormatting = getListFormattingInRange(NSRange(location: selectedRange.location, length: 0), in: attributedText)
             
-            return (isBold, isItalic, isUnderlined, listFormatting.isBulletList, listFormatting.isNumberedList,
+            return (isBold, isItalic, isUnderlined, isStrikethrough, listFormatting.isBulletList, listFormatting.isNumberedList,
                    headerFormatting.isH1, headerFormatting.isH2, headerFormatting.isH3)
         }
     }
     
-    private func getFormattingAtLocation(_ location: Int, in attributedText: NSAttributedString) -> (isBold: Bool, isItalic: Bool, isUnderlined: Bool) {
-        guard location < attributedText.length else { return (false, false, false) }
+    private func getFormattingAtLocation(_ location: Int, in attributedText: NSAttributedString) -> (isBold: Bool, isItalic: Bool, isUnderlined: Bool, isStrikethrough: Bool) {
+        guard location < attributedText.length else { return (false, false, false, false) }
         
         let attributes = attributedText.attributes(at: location, effectiveRange: nil)
         let isBold = isAttributeBold(attributes)
         let isItalic = isAttributeItalic(attributes)
         let isUnderlined = isAttributeUnderlined(attributes)
+        let isStrikethrough = isAttributeStrikethrough(attributes)
         
-        return (isBold, isItalic, isUnderlined)
+        return (isBold, isItalic, isUnderlined, isStrikethrough)
     }
     
     private func isAttributeBold(_ attributes: [NSAttributedString.Key: Any]) -> Bool {
@@ -594,6 +628,13 @@ class RichTextEditorView: UIView {
     private func isAttributeUnderlined(_ attributes: [NSAttributedString.Key: Any]) -> Bool {
         if let underlineValue = attributes[.underlineStyle] as? Int {
             return underlineValue != 0
+        }
+        return false
+    }
+    
+    private func isAttributeStrikethrough(_ attributes: [NSAttributedString.Key: Any]) -> Bool {
+        if let strikeValue = attributes[.strikethroughStyle] as? Int {
+            return strikeValue != 0
         }
         return false
     }
@@ -664,7 +705,7 @@ class RichTextEditorView: UIView {
     
     private func notifyFormattingChange() {
         let state = getCurrentFormattingState()
-        onFormattingChange?(state.isBold, state.isItalic, state.isUnderlined, state.isBulletList, state.isNumberedList, state.isH1, state.isH2, state.isH3)
+        onFormattingChange?(state.isBold, state.isItalic, state.isUnderlined, state.isStrikethrough, state.isBulletList, state.isNumberedList, state.isH1, state.isH2, state.isH3)
     }
     
     // MARK: - Initialization
@@ -1035,6 +1076,7 @@ struct RichTextEditor: UIViewRepresentable {
     @State private var isBold = false
     @State private var isItalic = false
     @State private var isUnderlined = false
+    @State private var isStrikethrough = false
     @State private var isBulletList = false
     @State private var isNumberedList = false
     @State private var isH1 = false
@@ -1057,6 +1099,10 @@ struct RichTextEditor: UIViewRepresentable {
         
         func toggleUnderline() {
             editorView?.toggleUnderline()
+        }
+
+        func toggleStrikethrough() {
+            editorView?.toggleStrikethrough()
         }
 
         
@@ -1091,8 +1137,8 @@ struct RichTextEditor: UIViewRepresentable {
             editorView?.createLink(displayLabel: displayLabel, url: url)
         }
         
-        func updateFormattingState(isBold: Bool, isItalic: Bool, isUnderlined: Bool, isBulletList: Bool, isNumberedList: Bool, isH1: Bool, isH2: Bool, isH3: Bool) {
-            parent?.updateFormattingState(isBold: isBold, isItalic: isItalic, isUnderlined: isUnderlined, isBulletList: isBulletList, isNumberedList: isNumberedList, isH1: isH1, isH2: isH2, isH3: isH3)
+        func updateFormattingState(isBold: Bool, isItalic: Bool, isUnderlined: Bool, isStrikethrough: Bool, isBulletList: Bool, isNumberedList: Bool, isH1: Bool, isH2: Bool, isH3: Bool) {
+            parent?.updateFormattingState(isBold: isBold, isItalic: isItalic, isUnderlined: isUnderlined, isStrikethrough: isStrikethrough, isBulletList: isBulletList, isNumberedList: isNumberedList, isH1: isH1, isH2: isH2, isH3: isH3)
         }
     }
     
@@ -1109,9 +1155,9 @@ struct RichTextEditor: UIViewRepresentable {
             }
         }
         
-        editorView.onFormattingChange = { isBold, isItalic, isUnderlined, isBulletList, isNumberedList, isH1, isH2, isH3 in
+        editorView.onFormattingChange = { isBold, isItalic, isUnderlined, isStrikethrough, isBulletList, isNumberedList, isH1, isH2, isH3 in
             DispatchQueue.main.async {
-                context.coordinator.updateFormattingState(isBold: isBold, isItalic: isItalic, isUnderlined: isUnderlined, isBulletList: isBulletList, isNumberedList: isNumberedList, isH1: isH1, isH2: isH2, isH3: isH3)
+                context.coordinator.updateFormattingState(isBold: isBold, isItalic: isItalic, isUnderlined: isUnderlined, isStrikethrough: isStrikethrough, isBulletList: isBulletList, isNumberedList: isNumberedList, isH1: isH1, isH2: isH2, isH3: isH3)
             }
         }
         
@@ -1141,11 +1187,16 @@ struct RichTextEditor: UIViewRepresentable {
     func toggleUnderline() {
         coordinator.toggleUnderline()
     }
+
+    func toggleStrikethrough() {
+        coordinator.toggleStrikethrough()
+    }
     
-    func updateFormattingState(isBold: Bool, isItalic: Bool, isUnderlined: Bool, isBulletList: Bool, isNumberedList: Bool, isH1: Bool, isH2: Bool, isH3: Bool) {
+    func updateFormattingState(isBold: Bool, isItalic: Bool, isUnderlined: Bool, isStrikethrough: Bool, isBulletList: Bool, isNumberedList: Bool, isH1: Bool, isH2: Bool, isH3: Bool) {
         self.isBold = isBold
         self.isItalic = isItalic
         self.isUnderlined = isUnderlined
+        self.isStrikethrough = isStrikethrough
         self.isBulletList = isBulletList
         self.isNumberedList = isNumberedList
         self.isH1 = isH1
@@ -1153,7 +1204,7 @@ struct RichTextEditor: UIViewRepresentable {
         self.isH3 = isH3
     }
     
-    func getFormattingState() -> (isBold: Bool, isItalic: Bool, isUnderlined: Bool, isBulletList: Bool, isNumberedList: Bool, isH1: Bool, isH2: Bool, isH3: Bool) {
-        return (isBold, isItalic, isUnderlined, isBulletList, isNumberedList, isH1, isH2, isH3)
+    func getFormattingState() -> (isBold: Bool, isItalic: Bool, isUnderlined: Bool, isStrikethrough: Bool, isBulletList: Bool, isNumberedList: Bool, isH1: Bool, isH2: Bool, isH3: Bool) {
+        return (isBold, isItalic, isUnderlined, isStrikethrough, isBulletList, isNumberedList, isH1, isH2, isH3)
     }
 }

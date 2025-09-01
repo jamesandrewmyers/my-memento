@@ -27,6 +27,7 @@ struct NoteEditView: View {
     @State private var isBold = false
     @State private var isItalic = false
     @State private var isUnderlined = false
+    @State private var isStrikethrough = false
     @State private var isBulletList = false
     @State private var isNumberedList = false
     @State private var isH1 = false
@@ -54,6 +55,7 @@ struct NoteEditView: View {
                         isBold: $isBold,
                         isItalic: $isItalic,
                         isUnderlined: $isUnderlined,
+                        isStrikethrough: $isStrikethrough,
                         isBulletList: $isBulletList,
                         isNumberedList: $isNumberedList,
                         isH1: $isH1,
@@ -317,6 +319,17 @@ extension NoteEditView {
                     .accessibilityLabel("Underline")
             }
             .buttonStyle(FormattingButtonStyle(isActive: isUnderlined))
+
+            Button(action: {
+                if #available(iOS 15.0, *) {
+                    editorCoordinator?.toggleStrikethrough()
+                }
+            }) {
+                Image(systemName: "strikethrough")
+                    .imageScale(.medium)
+                    .accessibilityLabel("Strikethrough")
+            }
+            .buttonStyle(FormattingButtonStyle(isActive: isStrikethrough))
             
             // Header dropdown menu
             Menu {
@@ -495,6 +508,7 @@ struct RichTextEditorWrapper: UIViewRepresentable {
     @Binding var isBold: Bool
     @Binding var isItalic: Bool
     @Binding var isUnderlined: Bool
+    @Binding var isStrikethrough: Bool
     @Binding var isBulletList: Bool
     @Binding var isNumberedList: Bool
     @Binding var isH1: Bool
@@ -517,11 +531,12 @@ struct RichTextEditorWrapper: UIViewRepresentable {
             }
         }
         
-        editorView.onFormattingChange = { bold, italic, underlined, bulletList, numberedList, h1, h2, h3 in
+        editorView.onFormattingChange = { bold, italic, underlined, strikethrough, bulletList, numberedList, h1, h2, h3 in
             DispatchQueue.main.async {
                 isBold = bold
                 isItalic = italic
                 isUnderlined = underlined
+                isStrikethrough = strikethrough
                 isBulletList = bulletList
                 isNumberedList = numberedList
                 isH1 = h1

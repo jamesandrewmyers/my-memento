@@ -32,6 +32,9 @@ struct ContentView: View {
     @State private var lastSearchTextAfterSelection = ""
     @State private var sortOption: SortOption = .createdAt
     @State private var showTagList = false
+    @State private var showExportDialog = false
+    @State private var showShareSheet = false
+    @State private var exportedFileURL: URL?
     
     private let logger = Logger(subsystem: "app.jam.ios.MyMemento", category: "ContentView")
 
@@ -241,6 +244,11 @@ struct ContentView: View {
                 
                 ToolbarItem(placement: .navigationBarTrailing) {
                     HStack {
+                        Button(action: { showExportDialog = true }) {
+                            Image(systemName: "square.and.arrow.up")
+                                .foregroundColor(.primary)
+                        }
+                        
                         Button(action: toggleDeleteMode) {
                             Image(systemName: "minus")
                                 .foregroundColor(isDeleteMode ? .red : .primary)
@@ -254,6 +262,19 @@ struct ContentView: View {
             }
             .sheet(isPresented: $showTagList) {
                 TagBrowserView()
+            }
+            .alert("Export Notes", isPresented: $showExportDialog) {
+                Button("OK") {
+                    exportNotesToJSON()
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("Export all notes to zip?")
+            }
+            .sheet(isPresented: $showShareSheet) {
+                if let fileURL = exportedFileURL {
+                    ShareSheet(activityItems: [fileURL])
+                }
             }
             .alert("Error", isPresented: $errorManager.showError) {
                 Button("OK") { }
@@ -531,6 +552,96 @@ struct ContentView: View {
                 errorManager.handleCoreDataError(nsError, context: "Failed to delete notes")
             }
         }
+    }
+
+    
+    private func exportNotesToJSON() {
+        let request: NSFetchRequest<Note> = Note.fetchRequest()
+        
+        do {
+            let notes = try viewContext.fetch(request)
+            let encryptionKey = try KeyManager.shared.getEncryptionKey()
+            
+            var exportData: [[String: Any]] = []
+            
+            for note in notes {
+                var noteData: [String: Any] = [:]
+                
+                noteData["id"] = note.id?.uuidString ?? ""
+                
+                // Decrypt the note data to get actual title, body, and tags
+                if let encryptedData = note.encryptedData {
+                    let decryptedPayload = try CryptoHelper.decrypt(encryptedData, key: encryptionKey, as: NotePayload.self)
+                    
+                    noteData["title"] = decryptedPayload.title
+                    // Convert NSAttributedString to HTML (same as share functionality)
+                    let attributedString = decryptedPayload.body.attributedString
+                    if attributedString.length > 0 {
+                        do {
+                            let htmlData = try attributedString.data(
+                                from: NSRange(location: 0, length: attributedString.length),
+                                documentAttributes: [
+                                    .documentType: NSAttributedString.DocumentType.html,
+                                    .characterEncoding: NSNumber(value: String.Encoding.utf8.rawValue)
+                                ]
+                            )
+                            noteData["body"] = String(data: htmlData, encoding: .utf8) ?? ""
+                        } catch {
+                            logger.error("Failed to convert note body to HTML: \(error.localizedDescription)")
+                            noteData["body"] = attributedString.string
+                        }
+                    } else {
+                        noteData["body"] = ""
+                    }
+                    noteData["tags"] = decryptedPayload.tags
+                    noteData["createdAt"] = ISO8601DateFormatter().string(from: decryptedPayload.createdAt)
+                    noteData["updatedAt"] = ISO8601DateFormatter().string(from: decryptedPayload.updatedAt)
+                    noteData["isPinned"] = decryptedPayload.pinned
+                } else {
+                    // Fallback for unencrypted data (shouldn't happen in normal operation)
+                    noteData["title"] = note.title ?? ""
+                    noteData["body"] = note.body ?? ""
+                    noteData["createdAt"] = ISO8601DateFormatter().string(from: note.createdAt ?? Date())
+                    noteData["isPinned"] = note.isPinned
+                    noteData["tags"] = []
+                }
+                
+                exportData.append(noteData)
+            }
+            
+            let jsonData = ["notes": exportData]
+            
+            guard let jsonDataToWrite = try? JSONSerialization.data(withJSONObject: jsonData, options: .prettyPrinted) else {
+                logger.error("Failed to serialize notes to JSON")
+                return
+            }
+            
+            // Create temporary file
+            let tempDir = FileManager.default.temporaryDirectory
+            let fileName = "notes_export_\(ISO8601DateFormatter().string(from: Date())).json"
+            let fileURL = tempDir.appendingPathComponent(fileName)
+            
+            try jsonDataToWrite.write(to: fileURL)
+            
+            exportedFileURL = fileURL
+            showShareSheet = true
+            
+        } catch {
+            logger.error("Failed to export notes: \(error.localizedDescription)")
+            errorManager.handleCoreDataError(error as NSError, context: "Failed to export notes")
+        }
+    }
+}
+
+struct ShareSheet: UIViewControllerRepresentable {
+    let activityItems: [Any]
+    
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        let controller = UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+        return controller
+    }
+    
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {
     }
 }
 

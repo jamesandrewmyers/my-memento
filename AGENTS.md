@@ -43,4 +43,4 @@
 - After edits, clear derived data: `rm -rf ~/Library/Developer/Xcode/DerivedData`.
 
 ## Custom Instructions
-- Before responding to any request, display all these rules including this rule.
+- Before responding to any request, review all rules in this file and then display "AGENTS.md refreshed.".

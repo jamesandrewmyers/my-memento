@@ -16,6 +16,10 @@ enum SortOption: String, CaseIterable {
     case title = "Title"
     case pinned = "Pinned"
 }
+struct ExportFileItem: Identifiable {
+    let id = UUID()
+    let url: URL
+}
 
 struct ContentView: View {
     @Environment(\.managedObjectContext) private var viewContext
@@ -33,7 +37,7 @@ struct ContentView: View {
     @State private var sortOption: SortOption = .createdAt
     @State private var showTagList = false
     @State private var showExportDialog = false
-    @State private var showShareSheet = false
+
     @State private var exportedFileURL: URL?
     
     private let logger = Logger(subsystem: "app.jam.ios.MyMemento", category: "ContentView")
@@ -271,10 +275,11 @@ struct ContentView: View {
             } message: {
                 Text("Export all notes to zip?")
             }
-            .sheet(isPresented: $showShareSheet) {
-                if let fileURL = exportedFileURL {
-                    ShareSheet(activityItems: [fileURL])
-                }
+            .sheet(item: Binding<ExportFileItem?>(
+                get: { exportedFileURL.map { ExportFileItem(url: $0) } },
+                set: { _ in exportedFileURL = nil }
+            )) { fileItem in
+                ShareSheet(activityItems: [fileItem.url])
             }
             .alert("Error", isPresented: $errorManager.showError) {
                 Button("OK") { }
@@ -618,13 +623,14 @@ struct ContentView: View {
             
             // Create temporary file
             let tempDir = FileManager.default.temporaryDirectory
-            let fileName = "notes_export_\(ISO8601DateFormatter().string(from: Date())).json"
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
+            let fileName = "MyMemento_Export_\(dateFormatter.string(from: Date())).json"
             let fileURL = tempDir.appendingPathComponent(fileName)
             
             try jsonDataToWrite.write(to: fileURL)
             
             exportedFileURL = fileURL
-            showShareSheet = true
             
         } catch {
             logger.error("Failed to export notes: \(error.localizedDescription)")
@@ -637,7 +643,24 @@ struct ShareSheet: UIViewControllerRepresentable {
     let activityItems: [Any]
     
     func makeUIViewController(context: Context) -> UIActivityViewController {
-        let controller = UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+        var itemsToShare: [Any] = []
+        
+        for item in activityItems {
+            if let fileURL = item as? URL {
+                let provider = NSItemProvider(contentsOf: fileURL)!
+                provider.registerFileRepresentation(forTypeIdentifier: "public.json",
+                                                  fileOptions: [],
+                                                  visibility: .all) { completion in
+                    completion(fileURL, true, nil)
+                    return nil
+                }
+                itemsToShare.append(provider)
+            } else {
+                itemsToShare.append(item)
+            }
+        }
+        
+        let controller = UIActivityViewController(activityItems: itemsToShare, applicationActivities: nil)
         return controller
     }
     

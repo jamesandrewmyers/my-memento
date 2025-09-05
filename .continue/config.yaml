@@ -1,0 +1,41 @@
+asfasdfasdfadsfasdfasdadsf
+name: Local Agent
+version: 1.0.0
+schema: v1
+models:
+  - name: DeepSeek Coder V2 (16b)
+    provider: ollama
+    model: deepseek-coder-v2:16b
+    apiBase: http://localhost:11434
+    contextLength: 8192
+  - name: Llama 3.1 8B
+    provider: ollama
+    model: llama3.1:8b
+    roles:
+      - chat
+      - edit
+      - apply
+  - name: Qwen2.5-Coder 1.5B
+    provider: ollama
+    model: qwen2.5-coder:1.5b-base
+    roles:
+      - autocomplete
+  - name: Nomic Embed
+    provider: ollama
+    model: nomic-embed-text:latest
+    roles:
+      - embed
+context:
+  - provider: code
+  - provider: docs
+  - provider: diff
+  - provider: terminal
+  - provider: problems
+  - provider: folder
+    maxFiles: 200
+    include:
+      - "**/*.*"
+    exclude:
+      - "node_modules/**"
+      - ".git/**"`
+  - provider: codebase

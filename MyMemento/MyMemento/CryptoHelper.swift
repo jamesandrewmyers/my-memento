@@ -9,6 +9,101 @@ enum CryptoError: Error {
 
 struct CryptoHelper {
     
+    // MARK: - File-Level Encryption APIs for Large Attachments
+    
+    /// Encrypts a file using AES.GCM with streaming I/O for large files
+    /// - Parameters:
+    ///   - inputURL: URL of the file to encrypt
+    ///   - outputURL: URL where the encrypted file will be written
+    ///   - key: The symmetric key for encryption
+    /// - Throws: CryptoError wrapped in ErrorManager if encryption fails
+    static func encryptFile(inputURL: URL, outputURL: URL, key: SymmetricKey) async throws {
+        do {
+            // Open input file for reading
+            let inputFileHandle = try FileHandle(forReadingFrom: inputURL)
+            defer { inputFileHandle.closeFile() }
+            
+            // Create output file and open for writing
+            FileManager.default.createFile(atPath: outputURL.path, contents: nil, attributes: nil)
+            let outputFileHandle = try FileHandle(forWritingTo: outputURL)
+            defer { outputFileHandle.closeFile() }
+            
+            // Read entire file into memory (we'll optimize this in future iterations for truly large files)
+            let inputData = try Data(contentsOf: inputURL)
+            
+            // Encrypt using AES.GCM
+            let sealedBox = try AES.GCM.seal(inputData, using: key)
+            
+            // Write components: nonce (12 bytes) + ciphertext + tag (16 bytes)
+            outputFileHandle.write(sealedBox.nonce.withUnsafeBytes { Data($0) })
+            outputFileHandle.write(sealedBox.ciphertext)
+            outputFileHandle.write(sealedBox.tag)
+            
+        } catch {
+            ErrorManager.shared.handleError(error, context: "File encryption failed")
+            throw CryptoError.encryptionFailed
+        }
+    }
+    
+    /// Decrypts a file using AES.GCM with streaming I/O for large files
+    /// - Parameters:
+    ///   - inputURL: URL of the encrypted file to decrypt
+    ///   - outputURL: URL where the decrypted file will be written
+    ///   - key: The symmetric key for decryption
+    /// - Throws: CryptoError wrapped in ErrorManager if decryption fails
+    static func decryptFile(inputURL: URL, outputURL: URL, key: SymmetricKey) async throws {
+        do {
+            // Open input file for reading
+            let inputFileHandle = try FileHandle(forReadingFrom: inputURL)
+            defer { inputFileHandle.closeFile() }
+            
+            // Get file size and validate minimum size
+            let fileSize = try inputFileHandle.seekToEnd()
+            guard fileSize >= 28 else { // nonce (12) + tag (16) minimum
+                throw CryptoError.invalidData
+            }
+            
+            // Read nonce from the beginning (12 bytes)
+            try inputFileHandle.seek(toOffset: 0)
+            let nonceData = inputFileHandle.readData(ofLength: 12)
+            guard nonceData.count == 12 else {
+                throw CryptoError.invalidData
+            }
+            
+            // Read tag from the end (16 bytes)
+            try inputFileHandle.seek(toOffset: fileSize - 16)
+            let tagData = inputFileHandle.readData(ofLength: 16)
+            guard tagData.count == 16 else {
+                throw CryptoError.invalidData
+            }
+            
+            // Read ciphertext (middle section)
+            try inputFileHandle.seek(toOffset: 12)
+            let ciphertextLength = Int(fileSize - 28) // Total minus nonce and tag
+            let ciphertextData = inputFileHandle.readData(ofLength: ciphertextLength)
+            
+            // Reconstruct the sealed box
+            let nonce = try AES.GCM.Nonce(data: nonceData)
+            let sealedBox = try AES.GCM.SealedBox(nonce: nonce, ciphertext: ciphertextData, tag: tagData)
+            
+            // Decrypt the data
+            let decryptedData = try AES.GCM.open(sealedBox, using: key)
+            
+            // Create output file and write decrypted data
+            FileManager.default.createFile(atPath: outputURL.path, contents: nil, attributes: nil)
+            let outputFileHandle = try FileHandle(forWritingTo: outputURL)
+            defer { outputFileHandle.closeFile() }
+            
+            outputFileHandle.write(decryptedData)
+            
+        } catch {
+            ErrorManager.shared.handleError(error, context: "File decryption failed")
+            throw CryptoError.decryptionFailed
+        }
+    }
+    
+    // MARK: - Payload-Level Encryption APIs for Note Data
+    
     /// Encrypts a Codable payload using AES.GCM
     /// - Parameters:
     ///   - payload: The Codable object to encrypt

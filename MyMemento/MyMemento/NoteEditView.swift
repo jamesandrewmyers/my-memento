@@ -10,6 +10,8 @@ import UIKit
 import UniformTypeIdentifiers
 import CoreData
 import Foundation
+import AVFoundation
+import PhotosUI
 
 struct NoteEditView: View {
     @Environment(\.managedObjectContext) private var viewContext
@@ -42,6 +44,16 @@ struct NoteEditView: View {
     @State private var linkDisplayLabel = ""
     @State private var linkURL = ""
     
+    // MARK: - Attachments UI State
+    @State private var videoThumbnails: [UUID: UIImage] = [:]
+    @State private var generatingThumbnailIDs: Set<UUID> = []
+    @State private var selectedVideoAttachment: Attachment?
+    @State private var isEncryptingAttachment = false
+    @State private var showAttachOptions = false
+    @State private var showVideoLibraryPicker = false
+    @State private var showVideoCameraPicker = false
+    @State private var attachmentsRefreshID = UUID()
+    
     var body: some View {
         Form {
             Section(header: Text("Note Details")) {
@@ -72,6 +84,52 @@ struct NoteEditView: View {
                     Text("Rich text editor requires iOS 15.0+")
                 }
             }
+
+            // MARK: - Attachments Section
+            Section(header: Text("Attachments")) {
+                // Attach Video button
+                Button(action: { showAttachOptions = true }) {
+                    HStack {
+                        Image(systemName: "paperclip")
+                        Text("Attach Video")
+                        if isEncryptingAttachment {
+                            Spacer()
+                            ProgressView()
+                        }
+                    }
+                }
+                .disabled(isEncryptingAttachment || note == nil)
+
+                if let attachmentSet = note?.attachments as? Set<Attachment>, !attachmentSet.isEmpty {
+                    let videos = attachmentSet
+                        .filter { ($0.type ?? "").lowercased() == "video" }
+                        .sorted { (a, b) in
+                            (a.createdAt ?? .distantPast) > (b.createdAt ?? .distantPast)
+                        }
+
+                    if videos.isEmpty {
+                        Text("No video attachments")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    } else {
+                        ForEach(videos, id: \.id) { attachment in
+                            AttachmentVideoRow(
+                                attachment: attachment,
+                                thumbnail: thumbnailImage(for: attachment),
+                                onAppear: { ensureThumbnail(for: attachment) },
+                                onTap: {
+                                    selectedVideoAttachment = attachment
+                                }
+                            )
+                        }
+                    }
+                } else {
+                    Text("No attachments")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .id(attachmentsRefreshID)
         }
         .navigationTitle("Edit Note")
         .navigationBarTitleDisplayMode(.inline)
@@ -161,6 +219,29 @@ struct NoteEditView: View {
                     }
                 }
             }
+        }
+        // Video playback sheet driven by selected item to avoid race conditions
+        .sheet(item: $selectedVideoAttachment, onDismiss: { selectedVideoAttachment = nil }) { attachment in
+            VideoAttachmentPlayer(attachment: attachment)
+        }
+        // Video pickers
+        .sheet(isPresented: $showVideoLibraryPicker) {
+            VideoLibraryPicker { url in
+                showVideoLibraryPicker = false
+                if let url = url { handlePickedVideo(url: url) }
+            }
+        }
+        .sheet(isPresented: $showVideoCameraPicker) {
+            VideoCameraPicker { url in
+                showVideoCameraPicker = false
+                if let url = url { handlePickedVideo(url: url) }
+            }
+        }
+        // Choose source
+        .confirmationDialog("Attach Video", isPresented: $showAttachOptions, titleVisibility: .visible) {
+            Button("Record Video") { showVideoCameraPicker = true }
+            Button("Choose from Library") { showVideoLibraryPicker = true }
+            Button("Cancel", role: .cancel) { }
         }
     }
     
@@ -470,6 +551,237 @@ struct NoteEditView: View {
             return topViewController(base: presented)
         }
         return base
+    }
+
+    // MARK: - Attachments Helpers
+    private func thumbnailImage(for attachment: Attachment) -> UIImage? {
+        guard let id = attachment.id else { return nil }
+        return videoThumbnails[id]
+    }
+
+    private func ensureThumbnail(for attachment: Attachment) {
+        guard let id = attachment.id else { return }
+        // Avoid regenerating
+        if videoThumbnails[id] != nil || generatingThumbnailIDs.contains(id) { return }
+        // Defer state mutation to avoid publishing during view updates
+        DispatchQueue.main.async {
+            self.generatingThumbnailIDs.insert(id)
+        }
+
+        // Capture path info on main thread to avoid Core Data threading issues
+        let relativePath = attachment.relativePath
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                guard let relativePath = relativePath,
+                      let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+                    throw DecryptedAssetError.fileNotFound
+                }
+
+                let encryptedURL = appSupport.appendingPathComponent(relativePath)
+                guard FileManager.default.fileExists(atPath: encryptedURL.path) else {
+                    throw DecryptedAssetError.fileNotFound
+                }
+
+                let key = try KeyManager.shared.getEncryptionKey()
+                let asset = DecryptedAsset(encryptedFileURL: encryptedURL, key: key)
+
+                let generator = AVAssetImageGenerator(asset: asset)
+                generator.appliesPreferredTrackTransform = true
+                // Try a small offset to avoid black first frame
+                let time = CMTime(seconds: 0.1, preferredTimescale: 600)
+                var actualTime = CMTime.zero
+                let cgImage = try generator.copyCGImage(at: time, actualTime: &actualTime)
+                let image = UIImage(cgImage: cgImage)
+
+                DispatchQueue.main.async {
+                    self.videoThumbnails[id] = image
+                    self.generatingThumbnailIDs.remove(id)
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.generatingThumbnailIDs.remove(id)
+                    // Non-critical: log only, avoid presenting alerts during view updates
+                    ErrorManager.shared.log(error, context: "Generating video thumbnail")
+                }
+            }
+        }
+    }
+
+    private func handlePickedVideo(url: URL) {
+        guard let note = note else { return }
+        isEncryptingAttachment = true
+        Task { @MainActor in
+            do {
+                // Call manager (runs on @MainActor)
+                _ = try await AttachmentManager.createVideoAttachment(for: note, from: url, context: viewContext)
+                // Save is done in manager, but ensure UI reflects changes
+                attachmentsRefreshID = UUID()
+                // Kick off thumbnails for new attachments
+                if let newSet = note.attachments as? Set<Attachment> {
+                    for att in newSet where (att.type ?? "").lowercased() == "video" {
+                        ensureThumbnail(for: att)
+                    }
+                }
+            } catch {
+                ErrorManager.shared.handleError(error, context: "Attaching video")
+            }
+            isEncryptingAttachment = false
+        }
+    }
+}
+
+// MARK: - Attachment Video Row View
+private struct AttachmentVideoRow: View {
+    let attachment: Attachment
+    let thumbnail: UIImage?
+    let onAppear: () -> Void
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 12) {
+                ZStack {
+                    if let thumbnail = thumbnail {
+                        Image(uiImage: thumbnail)
+                            .resizable()
+                            .scaledToFill()
+                    } else {
+                        Rectangle()
+                            .fill(Color.secondary.opacity(0.15))
+                        ProgressView()
+                    }
+                    Image(systemName: "play.circle.fill")
+                        .font(.system(size: 36))
+                        .foregroundColor(.white)
+                        .shadow(radius: 2)
+                }
+                .frame(width: 120, height: 68)
+                .clipped()
+                .cornerRadius(8)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Video")
+                        .font(.headline)
+                        .foregroundColor(.primary)
+                    if let date = attachment.createdAt {
+                        Text(date.formatted(date: .abbreviated, time: .shortened))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                Spacer()
+            }
+        }
+        .buttonStyle(.plain)
+        .onAppear(perform: onAppear)
+    }
+}
+
+// Ensure Core Data Attachment works with `sheet(item:)`
+
+
+// MARK: - UIKit/PhotosUI Wrappers
+private struct VideoLibraryPicker: UIViewControllerRepresentable {
+    typealias UIViewControllerType = PHPickerViewController
+    var onComplete: (URL?) -> Void
+
+    func makeUIViewController(context: Context) -> PHPickerViewController {
+        var config = PHPickerConfiguration()
+        config.filter = .videos
+        config.selectionLimit = 1
+        let picker = PHPickerViewController(configuration: config)
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: PHPickerViewController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(onComplete: onComplete) }
+
+    final class Coordinator: NSObject, PHPickerViewControllerDelegate {
+        let onComplete: (URL?) -> Void
+        init(onComplete: @escaping (URL?) -> Void) { self.onComplete = onComplete }
+
+        func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+            guard let provider = results.first?.itemProvider else {
+                picker.dismiss(animated: true) { self.onComplete(nil) }
+                return
+            }
+
+            if provider.hasItemConformingToTypeIdentifier(UTType.movie.identifier) {
+                provider.loadFileRepresentation(forTypeIdentifier: UTType.movie.identifier) { url, error in
+                    var exportedURL: URL? = nil
+                    if let error = error {
+                        ErrorManager.shared.log(error, context: "Picking video from library")
+                    } else if let srcURL = url {
+                        // Copy to a stable temp location before dismissing the picker
+                        let tmpDir = FileManager.default.temporaryDirectory
+                        let ext = srcURL.pathExtension.isEmpty ? "mov" : srcURL.pathExtension
+                        let dstURL = tmpDir.appendingPathComponent(UUID().uuidString).appendingPathExtension(ext)
+                        do {
+                            // Remove if exists (unlikely)
+                            try? FileManager.default.removeItem(at: dstURL)
+                            try FileManager.default.copyItem(at: srcURL, to: dstURL)
+                            exportedURL = dstURL
+                        } catch {
+                            ErrorManager.shared.log(error, context: "Copying picked video to temp")
+                        }
+                    }
+                    DispatchQueue.main.async {
+                        picker.dismiss(animated: true) { self.onComplete(exportedURL) }
+                    }
+                }
+            } else {
+                picker.dismiss(animated: true) { self.onComplete(nil) }
+            }
+        }
+    }
+}
+
+private struct VideoCameraPicker: UIViewControllerRepresentable {
+    typealias UIViewControllerType = UIImagePickerController
+    var onComplete: (URL?) -> Void
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = UIImagePickerController.isSourceTypeAvailable(.camera) ? .camera : .photoLibrary
+        picker.mediaTypes = [UTType.movie.identifier]
+        picker.videoQuality = .typeMedium
+        picker.allowsEditing = false
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(onComplete: onComplete) }
+
+    final class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
+        let onComplete: (URL?) -> Void
+        init(onComplete: @escaping (URL?) -> Void) { self.onComplete = onComplete }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            picker.dismiss(animated: true) { self.onComplete(nil) }
+        }
+
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
+            var outputURL: URL? = nil
+            if let srcURL = info[.mediaURL] as? URL {
+                // Copy to a stable temp location before dismissing
+                let tmpDir = FileManager.default.temporaryDirectory
+                let ext = srcURL.pathExtension.isEmpty ? "mov" : srcURL.pathExtension
+                let dstURL = tmpDir.appendingPathComponent(UUID().uuidString).appendingPathExtension(ext)
+                do {
+                    try? FileManager.default.removeItem(at: dstURL)
+                    try FileManager.default.copyItem(at: srcURL, to: dstURL)
+                    outputURL = dstURL
+                } catch {
+                    ErrorManager.shared.log(error, context: "Copying recorded video to temp")
+                }
+            }
+            picker.dismiss(animated: true) { self.onComplete(outputURL) }
+        }
     }
 }
 

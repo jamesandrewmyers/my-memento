@@ -62,4 +62,12 @@ class ErrorManager: ObservableObject {
             return context.isEmpty ? "An unexpected error occurred. Please try again." : "\(context): An unexpected error occurred. Please try again."
         }
     }
+
+    /// Logs a non-critical error without presenting an alert to the user.
+    /// Use this for recoverable/background failures (e.g., thumbnail generation)
+    func log(_ error: Error, context: String = "") {
+        let nsError = error as NSError
+        let message = context.isEmpty ? nsError.localizedDescription : "\(context): \(nsError.localizedDescription)"
+        logger.error("(non-critical) \(message)")
+    }
 }

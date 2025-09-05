@@ -392,33 +392,42 @@ struct ContentView: View {
     
     private func deleteNoteFromIndex(_ indexPayload: IndexPayload) {
         guard let note = fetchNote(by: indexPayload.id) else { return }
-        
+
         withAnimation {
             // Capture tags before deleting the note
             let associatedTags = Array(note.tags as? Set<Tag> ?? Set<Tag>())
-            
-            // Also delete the corresponding SearchIndex
-            let searchIndexRequest: NSFetchRequest<SearchIndex> = SearchIndex.fetchRequest()
-            searchIndexRequest.predicate = NSPredicate(format: "id == %@", indexPayload.id as CVarArg)
-            
-            do {
-                let searchIndices = try viewContext.fetch(searchIndexRequest)
-                searchIndices.forEach(viewContext.delete)
-                
-                viewContext.delete(note)
-                try viewContext.save()
-                
-                // Clean up orphaned tags after the note is deleted and saved
-                for tag in associatedTags {
-                    TagManager.handleTagRemovedFromNote(tag, in: viewContext)
+
+            Task { @MainActor in
+                // Clean up attachments (files + Core Data)
+                do {
+                    try await AttachmentManager.cleanupForDeletedNote(note: note, context: viewContext)
+                } catch {
+                    // Already reported via ErrorManager; continue with best-effort deletion
                 }
-                
-                // Refresh the index
-                noteIndexViewModel.refreshIndex(from: viewContext)
-                
-            } catch {
-                let nsError = error as NSError
-                errorManager.handleCoreDataError(nsError, context: "Failed to delete note")
+
+                // Delete the corresponding SearchIndex
+                let searchIndexRequest: NSFetchRequest<SearchIndex> = SearchIndex.fetchRequest()
+                searchIndexRequest.predicate = NSPredicate(format: "id == %@", indexPayload.id as CVarArg)
+
+                do {
+                    let searchIndices = try viewContext.fetch(searchIndexRequest)
+                    searchIndices.forEach(viewContext.delete)
+
+                    viewContext.delete(note)
+                    try viewContext.save()
+
+                    // Clean up orphaned tags after the note is deleted and saved
+                    for tag in associatedTags {
+                        TagManager.handleTagRemovedFromNote(tag, in: viewContext)
+                    }
+
+                    // Refresh the index
+                    noteIndexViewModel.refreshIndex(from: viewContext)
+
+                } catch {
+                    let nsError = error as NSError
+                    errorManager.handleCoreDataError(nsError, context: "Failed to delete note")
+                }
             }
         }
     }
@@ -525,36 +534,43 @@ struct ContentView: View {
                     allAssociatedTags.formUnion(tags)
                 }
             }
-            
-            // Delete corresponding SearchIndex entities
-            for indexPayload in indicesToDelete {
-                let searchIndexRequest: NSFetchRequest<SearchIndex> = SearchIndex.fetchRequest()
-                searchIndexRequest.predicate = NSPredicate(format: "id == %@", indexPayload.id as CVarArg)
-                
-                do {
-                    let searchIndices = try viewContext.fetch(searchIndexRequest)
-                    searchIndices.forEach(viewContext.delete)
-                } catch {
-                    logger.error("Failed to fetch SearchIndex for deletion: \(error.localizedDescription)")
-                }
-            }
-            
-            notesToDelete.forEach(viewContext.delete)
 
-            do {
-                try viewContext.save()
-                
-                // Clean up orphaned tags after notes are deleted and saved
-                for tag in allAssociatedTags {
-                    TagManager.handleTagRemovedFromNote(tag, in: viewContext)
+            Task { @MainActor in
+                // Clean up attachments for each note (best effort)
+                for note in notesToDelete {
+                    do { try await AttachmentManager.cleanupForDeletedNote(note: note, context: viewContext) } catch { }
                 }
-                
-                // Refresh the index
-                noteIndexViewModel.refreshIndex(from: viewContext)
-                
-            } catch {
-                let nsError = error as NSError
-                errorManager.handleCoreDataError(nsError, context: "Failed to delete notes")
+
+                // Delete corresponding SearchIndex entities
+                for indexPayload in indicesToDelete {
+                    let searchIndexRequest: NSFetchRequest<SearchIndex> = SearchIndex.fetchRequest()
+                    searchIndexRequest.predicate = NSPredicate(format: "id == %@", indexPayload.id as CVarArg)
+
+                    do {
+                        let searchIndices = try viewContext.fetch(searchIndexRequest)
+                        searchIndices.forEach(viewContext.delete)
+                    } catch {
+                        logger.error("Failed to fetch SearchIndex for deletion: \(error.localizedDescription)")
+                    }
+                }
+
+                notesToDelete.forEach(viewContext.delete)
+
+                do {
+                    try viewContext.save()
+
+                    // Clean up orphaned tags after notes are deleted and saved
+                    for tag in allAssociatedTags {
+                        TagManager.handleTagRemovedFromNote(tag, in: viewContext)
+                    }
+
+                    // Refresh the index
+                    noteIndexViewModel.refreshIndex(from: viewContext)
+
+                } catch {
+                    let nsError = error as NSError
+                    errorManager.handleCoreDataError(nsError, context: "Failed to delete notes")
+                }
             }
         }
     }

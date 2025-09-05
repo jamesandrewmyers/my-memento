@@ -17,13 +17,31 @@ class KeyManager {
     private let keychainAccount = "master-key"
     
     private var cachedKey: SymmetricKey?
+    private var isTestMode = false
     
     private init() {}
+    
+    /// Enables test mode (for unit testing)
+    func enableTestMode() {
+        isTestMode = true
+        cachedKey = nil
+    }
+    
+    /// Disables test mode
+    func disableTestMode() {
+        isTestMode = false
+        cachedKey = nil
+    }
     
     /// Retrieves or generates the encryption key
     /// - Returns: The symmetric encryption key
     /// - Throws: KeyManagerError if key operations fail
     func getEncryptionKey() throws -> SymmetricKey {
+        // In test mode, use UserDefaults instead of keychain
+        if isTestMode {
+            return try getTestEncryptionKey()
+        }
+        
         // Return cached key if available
         if let cachedKey = cachedKey {
             return cachedKey
@@ -40,6 +58,21 @@ class KeyManager {
             cachedKey = newKey
             return newKey
         }
+    }
+    
+    /// Sets a test encryption key (for unit testing)
+    func setTestEncryptionKey(_ key: SymmetricKey) {
+        guard isTestMode else { return }
+        let keyData = key.withUnsafeBytes { Data($0) }
+        UserDefaults.standard.set(keyData, forKey: "test-encryption-key")
+    }
+    
+    /// Retrieves test encryption key from UserDefaults
+    private func getTestEncryptionKey() throws -> SymmetricKey {
+        guard let keyData = UserDefaults.standard.data(forKey: "test-encryption-key") else {
+            throw KeyManagerError.keyNotFound
+        }
+        return SymmetricKey(data: keyData)
     }
     
     /// Generates a new encryption key and stores it in the keychain

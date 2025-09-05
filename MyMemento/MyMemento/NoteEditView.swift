@@ -53,6 +53,7 @@ struct NoteEditView: View {
     @State private var showVideoLibraryPicker = false
     @State private var showVideoCameraPicker = false
     @State private var attachmentsRefreshID = UUID()
+    @State private var showEncryptedExport = false
     
     var body: some View {
         Form {
@@ -155,7 +156,14 @@ struct NoteEditView: View {
             }
             
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button(action: exportNoteAndPresentShare) {
+                Menu {
+                    Button(action: exportNoteAndPresentShare) {
+                        Label("Export as HTML", systemImage: "doc.text")
+                    }
+                    Button(action: { showEncryptedExport = true }) {
+                        Label("Encrypted Export", systemImage: "lock.doc")
+                    }
+                } label: {
                     Image(systemName: "square.and.arrow.up")
                 }
             }
@@ -249,6 +257,12 @@ struct NoteEditView: View {
             Button("Record Video") { showVideoCameraPicker = true }
             Button("Choose from Library") { showVideoLibraryPicker = true }
             Button("Cancel", role: .cancel) { }
+        }
+        // Encrypted Export Sheet
+        .sheet(isPresented: $showEncryptedExport) {
+            if let note = note {
+                EncryptedExportView(note: note)
+            }
         }
     }
     

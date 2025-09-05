@@ -5,6 +5,9 @@ enum CryptoError: Error {
     case encryptionFailed
     case decryptionFailed
     case invalidData
+    case keyWrappingFailed
+    case invalidPublicKey
+    case exportDirectoryCreationFailed
 }
 
 struct CryptoHelper {
@@ -161,6 +164,131 @@ struct CryptoHelper {
             return decodedObject
         } catch {
             throw CryptoError.decryptionFailed
+        }
+    }
+    
+    // MARK: - Hybrid Export APIs
+    
+    /// Generates a fresh AES-256-GCM key for export encryption
+    /// - Returns: A new symmetric key for AES-256-GCM
+    static func generateExportKey() -> SymmetricKey {
+        return SymmetricKey(size: .bits256)
+    }
+    
+    /// Encrypts an export bundle (zip archive) using AES-GCM
+    /// - Parameters:
+    ///   - bundleURL: URL of the zip archive to encrypt
+    ///   - key: The symmetric key for encryption
+    /// - Returns: A tuple containing the encrypted file URL, nonce, and authentication tag
+    /// - Throws: CryptoError if encryption fails
+    static func encryptExportBundle(bundleURL: URL, key: SymmetricKey) async throws -> (encryptedURL: URL, nonce: Data, tag: Data) {
+        do {
+            // Create Application Support/Exports directory if it doesn't exist
+            let applicationSupportURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            let exportsURL = applicationSupportURL.appendingPathComponent("Exports")
+            
+            if !FileManager.default.fileExists(atPath: exportsURL.path) {
+                try FileManager.default.createDirectory(at: exportsURL, withIntermediateDirectories: true, attributes: nil)
+            }
+            
+            // Read the zip archive
+            let bundleData = try Data(contentsOf: bundleURL)
+            
+            // Encrypt using AES.GCM
+            let sealedBox = try AES.GCM.seal(bundleData, using: key)
+            
+            // Create output file URL
+            let encryptedURL = exportsURL.appendingPathComponent("export.enc")
+            
+            // Write encrypted data to file
+            var encryptedData = Data()
+            encryptedData.append(sealedBox.nonce.withUnsafeBytes { Data($0) })
+            encryptedData.append(sealedBox.ciphertext)
+            encryptedData.append(sealedBox.tag)
+            
+            try encryptedData.write(to: encryptedURL)
+            
+            // Return the components
+            let nonceData = sealedBox.nonce.withUnsafeBytes { Data($0) }
+            let tagData = sealedBox.tag
+            
+            return (encryptedURL: encryptedURL, nonce: nonceData, tag: tagData)
+            
+        } catch {
+            ErrorManager.shared.handleError(error, context: "Export bundle encryption failed")
+            if error is CryptoError {
+                throw error
+            } else {
+                throw CryptoError.encryptionFailed
+            }
+        }
+    }
+    
+    /// Wraps (encrypts) an export key using RSA-OAEP-SHA256
+    /// - Parameters:
+    ///   - key: The symmetric key to encrypt
+    ///   - publicKeyData: The RSA public key data (PEM or DER format)
+    /// - Returns: The encrypted key bytes
+    /// - Throws: CryptoError if key wrapping fails
+    static func wrapExportKey(key: SymmetricKey, with publicKeyData: Data) throws -> Data {
+        do {
+            // Convert SymmetricKey to raw data
+            let keyData = key.withUnsafeBytes { Data($0) }
+            
+            // Create SecKey from public key data
+            let publicKey: SecKey
+            
+            // Try DER format first
+            var error: Unmanaged<CFError>?
+            if let derKey = SecKeyCreateWithData(publicKeyData as CFData, [
+                kSecAttrKeyType: kSecAttrKeyTypeRSA,
+                kSecAttrKeyClass: kSecAttrKeyClassPublic
+            ] as CFDictionary, &error) {
+                publicKey = derKey
+            } else {
+                // Try PEM format - remove headers and decode base64
+                let pemString = String(data: publicKeyData, encoding: .utf8) ?? ""
+                let base64String = pemString
+                    .replacingOccurrences(of: "-----BEGIN PUBLIC KEY-----", with: "")
+                    .replacingOccurrences(of: "-----END PUBLIC KEY-----", with: "")
+                    .replacingOccurrences(of: "-----BEGIN RSA PUBLIC KEY-----", with: "")
+                    .replacingOccurrences(of: "-----END RSA PUBLIC KEY-----", with: "")
+                    .replacingOccurrences(of: "\n", with: "")
+                    .replacingOccurrences(of: "\r", with: "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                
+                guard let decodedData = Data(base64Encoded: base64String),
+                      let pemKey = SecKeyCreateWithData(decodedData as CFData, [
+                        kSecAttrKeyType: kSecAttrKeyTypeRSA,
+                        kSecAttrKeyClass: kSecAttrKeyClassPublic
+                      ] as CFDictionary, &error) else {
+                    ErrorManager.shared.handleError(CryptoError.invalidPublicKey, context: "Failed to create SecKey from public key data")
+                    throw CryptoError.invalidPublicKey
+                }
+                publicKey = pemKey
+            }
+            
+            // Encrypt the key using RSA-OAEP with SHA-256
+            guard let encryptedData = SecKeyCreateEncryptedData(
+                publicKey,
+                .rsaEncryptionOAEPSHA256,
+                keyData as CFData,
+                &error
+            ) else {
+                let wrappingError = error?.takeRetainedValue() as Error? ?? CryptoError.keyWrappingFailed
+                ErrorManager.shared.handleError(wrappingError, context: "RSA key wrapping failed")
+                throw CryptoError.keyWrappingFailed
+            }
+            
+            return encryptedData as Data
+            
+        } catch {
+            ErrorManager.shared.handleError(error, context: "Export key wrapping failed")
+            if error is CryptoError {
+                throw error
+            } else {
+                throw CryptoError.keyWrappingFailed
+            }
         }
     }
 }

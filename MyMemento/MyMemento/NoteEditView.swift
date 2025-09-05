@@ -121,6 +121,13 @@ struct NoteEditView: View {
                                     selectedVideoAttachment = attachment
                                 }
                             )
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button(role: .destructive) {
+                                    deleteAttachment(attachment)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
                         }
                     }
                 } else {
@@ -627,6 +634,21 @@ struct NoteEditView: View {
                 ErrorManager.shared.handleError(error, context: "Attaching video")
             }
             isEncryptingAttachment = false
+        }
+    }
+
+    private func deleteAttachment(_ attachment: Attachment) {
+        guard let id = attachment.id else { return }
+        Task { @MainActor in
+            do {
+                try await AttachmentManager.deleteAttachment(attachment, context: viewContext)
+                // Update UI caches and refresh the section
+                videoThumbnails.removeValue(forKey: id)
+                generatingThumbnailIDs.remove(id)
+                attachmentsRefreshID = UUID()
+            } catch {
+                ErrorManager.shared.handleError(error, context: "Deleting attachment")
+            }
         }
     }
 }

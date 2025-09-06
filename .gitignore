@@ -179,3 +179,5 @@ coverage/
 *.tmp
 .env
 .mcp.json
+
+*.patch

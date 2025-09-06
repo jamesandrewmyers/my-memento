@@ -299,5 +299,53 @@ struct MyMementoTests {
             }
         }
     }
+    
+    @Test func testKeyManagerRSAFunctionality() async throws {
+        // Test RSA keypair generation and retrieval
+        let privateKey = try KeyManager.shared.getExportPrivateKey()
+        let publicKey = try KeyManager.shared.getExportPublicKey()
+        
+        // Verify keys are valid
+        #expect(SecKeyGetTypeID() == CFGetTypeID(privateKey))
+        #expect(SecKeyGetTypeID() == CFGetTypeID(publicKey))
+        
+        // Test public key data extraction
+        let publicKeyData = try KeyManager.shared.getExportPublicKeyData()
+        #expect(publicKeyData.count > 0)
+        
+        // Test that we get the same keys on subsequent calls (caching)
+        let privateKey2 = try KeyManager.shared.getExportPrivateKey()
+        let publicKey2 = try KeyManager.shared.getExportPublicKey()
+        
+        #expect(CFEqual(privateKey, privateKey2))
+        #expect(CFEqual(publicKey, publicKey2))
+        
+        // Test encryption/decryption roundtrip to verify keys work
+        let testData = "Hello, RSA!".data(using: .utf8)!
+        
+        var error: Unmanaged<CFError>?
+        guard let encryptedData = SecKeyCreateEncryptedData(
+            publicKey,
+            .rsaEncryptionOAEPSHA256,
+            testData as CFData,
+            &error
+        ) else {
+            Issue.record("RSA encryption failed")
+            return
+        }
+        
+        guard let decryptedData = SecKeyCreateDecryptedData(
+            privateKey,
+            .rsaEncryptionOAEPSHA256,
+            encryptedData,
+            &error
+        ) else {
+            Issue.record("RSA decryption failed")
+            return
+        }
+        
+        let decryptedString = String(data: decryptedData as Data, encoding: .utf8)
+        #expect(decryptedString == "Hello, RSA!")
+    }
 }
 

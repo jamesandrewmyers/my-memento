@@ -664,7 +664,7 @@ struct ShareSheet: UIViewControllerRepresentable {
         for item in activityItems {
             if let fileURL = item as? URL {
                 let provider = NSItemProvider(contentsOf: fileURL)!
-                provider.registerFileRepresentation(forTypeIdentifier: "public.json",
+                provider.registerFileRepresentation(forTypeIdentifier: "app.jam.ios.memento",
                                                   fileOptions: [],
                                                   visibility: .all) { completion in
                     completion(fileURL, true, nil)

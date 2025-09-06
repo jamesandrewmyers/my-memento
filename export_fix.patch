@@ -1,0 +1,32 @@
+--- a/MyMemento/MyMemento/NoteEditView.swift
++++ b/MyMemento/MyMemento/NoteEditView.swift
+@@ -527,16 +527,18 @@
+ 
+     private func exportNoteWithLocalKeyAndPresentShare() {
+         guard let note else { return }
+-        // Defer work to the next run loop to avoid publishing during view updates
+-        DispatchQueue.main.async {
+-            Task {
+-                do {
+-                    let url = try await ExportManager.shared.exportWithLocalKey(note: note)
+-                    await MainActor.run {
+-                        presentShareSheet(for: url)
+-                    }
+-                } catch {
+-                    errorManager.handleError(error, context: "Failed to export note with local key")
++        
++        Task {
++            do {
++                let url = try await ExportManager.shared.exportWithLocalKey(note: note)
++                // Ensure UI updates happen on main thread
++                DispatchQueue.main.async {
++                    self.presentShareSheet(for: url)
+                 }
++            } catch {
++                // Ensure error handling happens on main thread
++                DispatchQueue.main.async {
++                    self.errorManager.handleError(error, context: "Failed to export note with local key")
++                }
+             }
+         }
+     }

@@ -191,16 +191,58 @@ struct CryptoHelper {
                 try FileManager.default.createDirectory(at: exportsURL, withIntermediateDirectories: true, attributes: nil)
             }
             
-            // Read the zip archive
-            let bundleData = try Data(contentsOf: bundleURL)
+            // Prepare bundle data. If bundleURL is a directory (our directory-based "zip"),
+            // serialize its textual contents into a deterministic UTF-8 representation so
+            // downstream tests and readers can verify content without a zip library.
+            // Verify the bundle exists and determine if it's a directory using resource values
+            let fm = FileManager.default
+            guard fm.fileExists(atPath: bundleURL.path) else { throw CryptoError.invalidData }
+            let isDirectory: Bool = (try? bundleURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+
+            let bundleData: Data
+            if isDirectory {
+                // Gather all files (top-level) and serialize text files inline; mark binaries
+                let items = try fm.contentsOfDirectory(at: bundleURL, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles])
+                var builder = ""
+                for item in items.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+                    let isSubdir = ((try? item.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false) == true
+                    if isSubdir {
+                        // For subdirectories, just list names recursively
+                        builder += "DIR: \(item.lastPathComponent)\n"
+                        if let subitems = try? fm.contentsOfDirectory(at: item, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
+                            for sub in subitems.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+                                builder += "FILE: \(item.lastPathComponent)/\(sub.lastPathComponent)\n"
+                            }
+                        }
+                    } else {
+                        // Inline textual content when possible (e.g., body.html)
+                        if let text = try? String(contentsOf: item, encoding: .utf8) {
+                            builder += "FILE: \(item.lastPathComponent)\n"
+                            builder += text
+                            builder += "\n"
+                        } else {
+                            let size = (try? fm.attributesOfItem(atPath: item.path)[.size] as? NSNumber)?.intValue ?? 0
+                            builder += "BINARY_FILE: \(item.lastPathComponent) (\(size) bytes)\n"
+                        }
+                    }
+                }
+                guard let data = builder.data(using: .utf8) else { throw CryptoError.invalidData }
+                bundleData = data
+            } else {
+                // Read the single-file archive
+                bundleData = try Data(contentsOf: bundleURL)
+            }
             
             // Encrypt using AES.GCM
             let sealedBox = try AES.GCM.seal(bundleData, using: key)
             
             // Create output file URL
             let encryptedURL = exportsURL.appendingPathComponent("export.enc")
+            if fm.fileExists(atPath: encryptedURL.path) {
+                try? fm.removeItem(at: encryptedURL)
+            }
             
-            // Write encrypted data to file
+            // Write encrypted data to file: nonce (12) + ciphertext + tag (16)
             var encryptedData = Data()
             encryptedData.append(sealedBox.nonce.withUnsafeBytes { Data($0) })
             encryptedData.append(sealedBox.ciphertext)

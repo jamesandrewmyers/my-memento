@@ -160,6 +160,9 @@ struct NoteEditView: View {
                     Button(action: exportNoteAndPresentShare) {
                         Label("Export as HTML", systemImage: "doc.text")
                     }
+                    Button(action: exportNoteWithLocalKeyAndPresentShare) {
+                        Label("Export (Local Key)", systemImage: "lock.app.dashed")
+                    }
                     Button(action: { showEncryptedExport = true }) {
                         Label("Encrypted Export", systemImage: "lock.doc")
                     }
@@ -522,6 +525,43 @@ struct NoteEditView: View {
         presentShareSheet(for: generated.url)
     }
 
+    private func exportNoteWithLocalKeyAndPresentShare() {
+        guard let note else { 
+            print("Export: No note available for export")
+            return 
+        }
+        
+        print("Export: Starting local key export for note \(note.id?.uuidString ?? "unknown")")
+        
+        Task {
+            do {
+                print("Export: Calling ExportManager.shared.exportWithLocalKey")
+                let url = try await ExportManager.shared.exportWithLocalKey(note: note)
+                print("Export: Successfully exported to \(url.path)")
+                
+                // Verify the file exists before sharing
+                if FileManager.default.fileExists(atPath: url.path) {
+                    print("Export: File exists at \(url.path), presenting share sheet")
+                    // Ensure UI updates happen on main thread
+                    DispatchQueue.main.async {
+                        self.presentShareSheet(for: url)
+                    }
+                } else {
+                    print("Export: ERROR - File does not exist at \(url.path)")
+                    DispatchQueue.main.async {
+                        self.errorManager.handleError(ExportError.finalPackagingFailed, context: "Export file was not created")
+                    }
+                }
+            } catch {
+                print("Export: ERROR - \(error)")
+                // Ensure error handling happens on main thread
+                DispatchQueue.main.async {
+                    self.errorManager.handleError(error, context: "Failed to export note with local key")
+                }
+            }
+        }
+    }
+
     private func generateHTMLTempFile() -> (url: URL, data: Data, name: String)? {
         let content = noteBody
         guard content.length > 0 else { return nil }
@@ -548,7 +588,29 @@ struct NoteEditView: View {
     }
 
     private func presentShareSheet(for url: URL) {
+        print("ShareSheet: Preparing to present share sheet for \(url.path)")
+        print("ShareSheet: File extension is: \(url.pathExtension)")
+        // Get file size for logging
+        do {
+            let fileSize = try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber ?? 0
+            print("ShareSheet: File size: \(fileSize) bytes")
+        } catch {
+            print("ShareSheet: Could not get file size: \(error)")
+        }
+        
+        // For maximum compatibility, share the file URL directly without custom wrappers
+        // The file should already have a safe extension (.zip) from ExportManager
+        print("ShareSheet: Using file URL directly for maximum compatibility")
+        
+        print("ShareSheet: Creating UIActivityViewController with direct file URL")
         let activityVC = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        
+        // Debug: Log all available activities
+        print("ShareSheet: Available activities will be determined by iOS...")
+        
+        // Don't exclude any activities to see what's available
+        activityVC.excludedActivityTypes = []
+        print("ShareSheet: Set excludedActivityTypes to empty array to see all options")
         if let popover = activityVC.popoverPresentationController {
             popover.sourceView = UIApplication.shared.windows.first { $0.isKeyWindow }
             if let sourceView = popover.sourceView {
@@ -556,7 +618,17 @@ struct NoteEditView: View {
                 popover.permittedArrowDirections = []
             }
         }
-        topViewController()?.present(activityVC, animated: true)
+        
+        print("ShareSheet: Getting top view controller")
+        guard let topVC = topViewController() else {
+            print("ShareSheet: ERROR - No top view controller found")
+            return
+        }
+        
+        print("ShareSheet: Presenting activity view controller")
+        topVC.present(activityVC, animated: true) {
+            print("ShareSheet: Activity view controller presented successfully")
+        }
     }
 
     private func topViewController(base: UIViewController? = UIApplication.shared.connectedScenes
@@ -821,8 +893,178 @@ private struct VideoCameraPicker: UIViewControllerRepresentable {
     }
 }
 
-// MARK: - UIActivityItemSource for HTML files
-// No custom UIActivityItemSource; using the file URL directly yields the broadest set of system share targets
+// MARK: - UIActivityItemSource for sharing files
+class ShareableFileItem: NSObject, UIActivityItemSource {
+    let url: URL
+    let filename: String
+    
+    init(url: URL, filename: String) {
+        self.url = url
+        self.filename = filename
+        super.init()
+    }
+    
+    func activityViewControllerPlaceholderItem(_ activityViewController: UIActivityViewController) -> Any {
+        return url
+    }
+    
+    func activityViewController(_ activityViewController: UIActivityViewController, itemForActivityType activityType: UIActivity.ActivityType?) -> Any? {
+        if url.pathExtension == "memento" && activityType?.rawValue.contains("mail") == true {
+            // Create a temporary copy with .txt extension for Gmail compatibility testing
+            let tempURL = createTempFileForEmail()
+            return tempURL ?? url
+        }
+        return url
+    }
+    
+    func activityViewController(_ activityViewController: UIActivityViewController, subjectForActivityType activityType: UIActivity.ActivityType?) -> String {
+        let baseFilename = (filename as NSString).deletingPathExtension
+        return "MyMemento Export: \(baseFilename)"
+    }
+    
+    func activityViewController(_ activityViewController: UIActivityViewController, dataTypeIdentifierForActivityType activityType: UIActivity.ActivityType?) -> String {
+        if url.pathExtension == "memento" {
+            // Use generic binary data UTI for better email client compatibility
+            return "public.data"
+        }
+        return "public.item"
+    }
+    
+
+    
+    private func createTempFileForEmail() -> URL? {
+        do {
+            let tempDir = FileManager.default.temporaryDirectory
+            let tempFileName = "\((filename as NSString).deletingPathExtension).txt"
+            let tempURL = tempDir.appendingPathComponent(tempFileName)
+            
+            // Remove if it exists
+            if FileManager.default.fileExists(atPath: tempURL.path) {
+                try FileManager.default.removeItem(at: tempURL)
+            }
+            
+            // Copy the file with .txt extension
+            try FileManager.default.copyItem(at: url, to: tempURL)
+            print("ShareSheet: Created temp file for email: \(tempURL.path)")
+            return tempURL
+        } catch {
+            print("ShareSheet: Failed to create temp file for email: \(error)")
+            return nil
+        }
+    }
+    
+    func activityViewController(_ activityViewController: UIActivityViewController, thumbnailImageForActivityType activityType: UIActivity.ActivityType?, suggestedSize size: CGSize) -> UIImage? {
+        // Provide a custom icon for .memento files to help with recognition
+        return UIImage(systemName: "doc.badge.gearshape.fill")
+    }
+}
+
+// MARK: - AdaptiveShareItem that chooses the best approach per app
+
+class AdaptiveShareItem: NSObject, UIActivityItemSource {
+    let url: URL
+    let data: Data
+    let filename: String
+    
+    init(url: URL, data: Data, filename: String) {
+        self.url = url
+        self.data = data
+        self.filename = filename
+        super.init()
+    }
+    
+    func activityViewControllerPlaceholderItem(_ activityViewController: UIActivityViewController) -> Any {
+        return data // Use data as placeholder
+    }
+    
+    func activityViewController(_ activityViewController: UIActivityViewController, itemForActivityType activityType: UIActivity.ActivityType?) -> Any? {
+        guard let activityType = activityType else {
+            print("ShareSheet: No activity type, using data")
+            return data
+        }
+        
+        print("ShareSheet: Activity type: \(activityType.rawValue)")
+        
+        // For mail apps (Gmail, Apple Mail, etc), use data to avoid file system issues
+        if activityType.rawValue.contains("mail") || activityType.rawValue.contains("gmail") {
+            print("ShareSheet: Using data for mail app (\(data.count) bytes)")
+            return data
+        }
+        
+        // For file-based apps (Files app, cloud storage), use file URL
+        if activityType.rawValue.contains("files") || activityType.rawValue.contains("document") || 
+           activityType.rawValue.contains("dropbox") || activityType.rawValue.contains("drive") {
+            print("ShareSheet: Using file URL for file-based app")
+            return url
+        }
+        
+        // For messaging apps, try data first
+        if activityType.rawValue.contains("message") || activityType.rawValue.contains("whatsapp") ||
+           activityType.rawValue.contains("telegram") || activityType.rawValue.contains("signal") {
+            print("ShareSheet: Using data for messaging app (\(data.count) bytes)")
+            return data
+        }
+        
+        // Default to data for unknown apps to avoid file system issues
+        print("ShareSheet: Using data for unknown app type (\(data.count) bytes)")
+        return data
+    }
+    
+    func activityViewController(_ activityViewController: UIActivityViewController, subjectForActivityType activityType: UIActivity.ActivityType?) -> String {
+        let baseFilename = (filename as NSString).deletingPathExtension
+        return "MyMemento Export: \(baseFilename)"
+    }
+    
+    func activityViewController(_ activityViewController: UIActivityViewController, dataTypeIdentifierForActivityType activityType: UIActivity.ActivityType?) -> String {
+        // Always use generic binary data UTI for maximum compatibility
+        return "public.data"
+    }
+    
+    func activityViewController(_ activityViewController: UIActivityViewController, thumbnailImageForActivityType activityType: UIActivity.ActivityType?, suggestedSize size: CGSize) -> UIImage? {
+        return UIImage(systemName: "doc.badge.gearshape.fill")
+    }
+}
+
+// MARK: - ShareableDataItem for data-based sharing
+
+class ShareableDataItem: NSObject, UIActivityItemSource {
+    let data: Data
+    let filename: String
+    
+    init(data: Data, filename: String) {
+        self.data = data
+        self.filename = filename
+        super.init()
+    }
+    
+    func activityViewControllerPlaceholderItem(_ activityViewController: UIActivityViewController) -> Any {
+        return data
+    }
+    
+    func activityViewController(_ activityViewController: UIActivityViewController, itemForActivityType activityType: UIActivity.ActivityType?) -> Any? {
+        // For mail apps, provide the data directly
+        if activityType?.rawValue.contains("mail") == true {
+            print("ShareSheet: Providing data directly for mail app (\(data.count) bytes)")
+            return data
+        }
+        // For other apps, also provide data
+        return data
+    }
+    
+    func activityViewController(_ activityViewController: UIActivityViewController, subjectForActivityType activityType: UIActivity.ActivityType?) -> String {
+        let baseFilename = (filename as NSString).deletingPathExtension
+        return "MyMemento Export: \(baseFilename)"
+    }
+    
+    func activityViewController(_ activityViewController: UIActivityViewController, dataTypeIdentifierForActivityType activityType: UIActivity.ActivityType?) -> String {
+        // Use application/octet-stream for binary data
+        return "public.data"
+    }
+    
+    func activityViewController(_ activityViewController: UIActivityViewController, thumbnailImageForActivityType activityType: UIActivity.ActivityType?, suggestedSize size: CGSize) -> UIImage? {
+        return UIImage(systemName: "doc.badge.gearshape.fill")
+    }
+}
 
 // MARK: - Formatting Bar (visual only)
 

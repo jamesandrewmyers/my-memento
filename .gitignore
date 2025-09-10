@@ -154,6 +154,7 @@ Desktop.ini
 # IDEs
 .vscode/
 .idea/
+.continue/
 *.sublime-project
 *.sublime-workspace
 
@@ -169,6 +170,7 @@ yarn-error.log*
 .env.development.local
 .env.test.local
 .env.production.local
+.deepseek.env
 
 # Coverage reports
 coverage/

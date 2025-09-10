@@ -96,6 +96,61 @@ class AttachmentManager: ObservableObject {
         }
     }
     
+    /// Creates an encrypted audio attachment from a source audio file
+    @MainActor
+    func createAudioAttachment(for note: Note, from sourceURL: URL, context: NSManagedObjectContext) async throws -> Attachment {
+        do {
+            // Validate source file exists and is accessible
+            guard fileManager.fileExists(atPath: sourceURL.path) else {
+                throw AttachmentError.invalidSourceFile
+            }
+            
+            // Get Application Support directory
+            guard let applicationSupportURL = getApplicationSupportURL() else {
+                throw AttachmentError.applicationSupportNotFound
+            }
+            
+            // Create Media directory if it doesn't exist
+            let mediaDirectoryURL = applicationSupportURL.appendingPathComponent("Media")
+            try fileManager.createDirectory(at: mediaDirectoryURL, withIntermediateDirectories: true, attributes: nil)
+            
+            // Generate unique filename for encrypted attachment
+            let attachmentUUID = UUID()
+            let encryptedFilename = "\(attachmentUUID.uuidString).vaultaudio"
+            let encryptedFileURL = mediaDirectoryURL.appendingPathComponent(encryptedFilename)
+            let relativePath = "Media/\(encryptedFilename)"
+            
+            // Get encryption key
+            let encryptionKey = try KeyManager.shared.getEncryptionKey()
+            
+            // Encrypt the source file
+            try await CryptoHelper.encryptFile(inputURL: sourceURL, outputURL: encryptedFileURL, key: encryptionKey)
+            
+            // Create Attachment entity in Core Data
+            let attachment = Attachment(context: context)
+            attachment.id = attachmentUUID
+            attachment.type = "audio"
+            attachment.relativePath = relativePath
+            attachment.createdAt = Date()
+            attachment.note = note
+            
+            // Save context
+            try context.save()
+            
+            logger.info("Created audio attachment: \(attachmentUUID.uuidString) for note: \(note.id?.uuidString ?? "unknown")")
+            
+            return attachment
+            
+        } catch let error as AttachmentError {
+            ErrorManager.shared.handleError(error, context: "Creating audio attachment")
+            throw error
+        } catch {
+            let wrappedError = AttachmentError.coreDataOperationFailed(error.localizedDescription)
+            ErrorManager.shared.handleError(wrappedError, context: "Creating audio attachment")
+            throw wrappedError
+        }
+    }
+    
     /// Deletes an attachment and its encrypted file from disk
     /// - Parameters:
     ///   - attachment: The attachment to delete
@@ -157,9 +212,9 @@ class AttachmentManager: ObservableObject {
                 return
             }
             
-            // Get all .vaultvideo files in Media directory
+            // Get all .vaultvideo and .vaultaudio files in Media directory
             let diskFiles = try fileManager.contentsOfDirectory(at: mediaDirectoryURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
-                .filter { $0.pathExtension == "vaultvideo" }
+                .filter { $0.pathExtension == "vaultvideo" || $0.pathExtension == "vaultaudio" }
                 .map { "Media/\($0.lastPathComponent)" }
             
             // Get all relativePath values from Attachments in Core Data
@@ -202,13 +257,13 @@ class AttachmentManager: ObservableObject {
     func cleanupForDeletedNote(note: Note, context: NSManagedObjectContext) async throws {
         // Capture attachment info on main actor to avoid threading issues
         let attachments: [Attachment] = (note.attachments as? Set<Attachment>).map(Array.init) ?? []
-        let videoRelativePaths: [String] = attachments
-            .filter { ($0.type ?? "").lowercased() == "video" }
+        let attachmentRelativePaths: [String] = attachments
+            .filter { ["video", "audio"].contains(($0.type ?? "").lowercased()) }
             .compactMap { $0.relativePath }
 
         // Delete files off the main thread
-        if !videoRelativePaths.isEmpty, let appSupport = getApplicationSupportURL() {
-            let fileURLs = videoRelativePaths.map { appSupport.appendingPathComponent($0) }
+        if !attachmentRelativePaths.isEmpty, let appSupport = getApplicationSupportURL() {
+            let fileURLs = attachmentRelativePaths.map { appSupport.appendingPathComponent($0) }
 
             // Launch detached tasks to ensure work is off the main actor
             var tasks: [Task<Void, Never>] = []
@@ -307,6 +362,16 @@ extension AttachmentManager {
     /// - Returns: The created Attachment entity
     static func createVideoAttachment(for note: Note, from sourceURL: URL, context: NSManagedObjectContext) async throws -> Attachment {
         return try await shared.createVideoAttachment(for: note, from: sourceURL, context: context)
+    }
+    
+    /// Creates an audio attachment using the shared instance
+    /// - Parameters:
+    ///   - note: The note to attach the audio to
+    ///   - sourceURL: URL of the source audio file
+    ///   - context: Core Data managed object context
+    /// - Returns: The created Attachment entity
+    static func createAudioAttachment(for note: Note, from sourceURL: URL, context: NSManagedObjectContext) async throws -> Attachment {
+        return try await shared.createAudioAttachment(for: note, from: sourceURL, context: context)
     }
     
     /// Deletes an attachment using the shared instance

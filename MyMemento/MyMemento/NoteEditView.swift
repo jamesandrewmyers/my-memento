@@ -12,6 +12,7 @@ import CoreData
 import Foundation
 import AVFoundation
 import PhotosUI
+import CryptoKit
 
 struct NoteEditView: View {
     @Environment(\.managedObjectContext) private var viewContext
@@ -54,6 +55,8 @@ struct NoteEditView: View {
     @State private var showVideoCameraPicker = false
     @State private var attachmentsRefreshID = UUID()
     @State private var showEncryptedExport = false
+    @State private var selectedAudioAttachment: Attachment?
+    @State private var showVoiceRecorder = false
     
     var body: some View {
         Form {
@@ -92,7 +95,7 @@ struct NoteEditView: View {
                 Button(action: { showAttachOptions = true }) {
                     HStack {
                         Image(systemName: "paperclip")
-                        Text("Attach Video")
+                        Text("Add Attachment")
                         if isEncryptingAttachment {
                             Spacer()
                             ProgressView()
@@ -102,17 +105,14 @@ struct NoteEditView: View {
                 .disabled(isEncryptingAttachment || note == nil)
 
                 if let attachmentSet = note?.attachments as? Set<Attachment>, !attachmentSet.isEmpty {
-                    let videos = attachmentSet
-                        .filter { ($0.type ?? "").lowercased() == "video" }
-                        .sorted { (a, b) in
-                            (a.createdAt ?? .distantPast) > (b.createdAt ?? .distantPast)
-                        }
+                    let sortedAttachments = attachmentSet.sorted { (a, b) in
+                        (a.createdAt ?? .distantPast) > (b.createdAt ?? .distantPast)
+                    }
+                    
+                    let videos = sortedAttachments.filter { ($0.type ?? "").lowercased() == "video" }
+                    let audios = sortedAttachments.filter { ($0.type ?? "").lowercased() == "audio" }
 
-                    if videos.isEmpty {
-                        Text("No video attachments")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    } else {
+                    if !videos.isEmpty {
                         ForEach(videos, id: \.id) { attachment in
                             AttachmentVideoRow(
                                 attachment: attachment,
@@ -130,6 +130,30 @@ struct NoteEditView: View {
                                 }
                             }
                         }
+                    }
+                    
+                    if !audios.isEmpty {
+                        ForEach(audios, id: \.id) { attachment in
+                            AttachmentAudioRow(
+                                attachment: attachment,
+                                onTap: {
+                                    selectedAudioAttachment = attachment
+                                }
+                            )
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button(role: .destructive) {
+                                    deleteAttachment(attachment)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
+                        }
+                    }
+                    
+                    if videos.isEmpty && audios.isEmpty {
+                        Text("No attachments")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
                 } else {
                     Text("No attachments")
@@ -242,6 +266,10 @@ struct NoteEditView: View {
         .sheet(item: $selectedVideoAttachment, onDismiss: { selectedVideoAttachment = nil }) { attachment in
             VideoAttachmentPlayer(attachment: attachment)
         }
+        // Audio playback sheet
+        .sheet(item: $selectedAudioAttachment, onDismiss: { selectedAudioAttachment = nil }) { attachment in
+            AudioAttachmentPlayer(attachment: attachment)
+        }
         // Video pickers
         .sheet(isPresented: $showVideoLibraryPicker) {
             VideoLibraryPicker { url in
@@ -255,10 +283,18 @@ struct NoteEditView: View {
                 if let url = url { handlePickedVideo(url: url) }
             }
         }
+        // Voice recorder
+        .sheet(isPresented: $showVoiceRecorder) {
+            VoiceRecorderView { url in
+                showVoiceRecorder = false
+                if let url = url { handleRecordedAudio(url: url) }
+            }
+        }
         // Choose source
-        .confirmationDialog("Attach Video", isPresented: $showAttachOptions, titleVisibility: .visible) {
+        .confirmationDialog("Add Attachment", isPresented: $showAttachOptions, titleVisibility: .visible) {
             Button("Record Video") { showVideoCameraPicker = true }
-            Button("Choose from Library") { showVideoLibraryPicker = true }
+            Button("Choose Video from Library") { showVideoLibraryPicker = true }
+            Button("Record Voice") { showVoiceRecorder = true }
             Button("Cancel", role: .cancel) { }
         }
         // Encrypted Export Sheet
@@ -723,6 +759,22 @@ struct NoteEditView: View {
         }
     }
 
+    private func handleRecordedAudio(url: URL) {
+        guard let note = note else { return }
+        isEncryptingAttachment = true
+        Task { @MainActor in
+            do {
+                // Call manager to create audio attachment (will need to implement)
+                _ = try await AttachmentManager.createAudioAttachment(for: note, from: url, context: viewContext)
+                // Save is done in manager, but ensure UI reflects changes
+                attachmentsRefreshID = UUID()
+            } catch {
+                ErrorManager.shared.handleError(error, context: "Attaching voice recording")
+            }
+            isEncryptingAttachment = false
+        }
+    }
+
     private func deleteAttachment(_ attachment: Attachment) {
         guard let id = attachment.id else { return }
         Task { @MainActor in
@@ -783,6 +835,396 @@ private struct AttachmentVideoRow: View {
         }
         .buttonStyle(.plain)
         .onAppear(perform: onAppear)
+    }
+}
+
+// MARK: - Attachment Audio Row View
+private struct AttachmentAudioRow: View {
+    let attachment: Attachment
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.blue.opacity(0.15))
+                        .frame(width: 60, height: 60)
+                    
+                    Image(systemName: "waveform")
+                        .font(.system(size: 24))
+                        .foregroundColor(.blue)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Voice Recording")
+                        .font(.headline)
+                        .foregroundColor(.primary)
+                    if let date = attachment.createdAt {
+                        Text(date.formatted(date: .abbreviated, time: .shortened))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                Spacer()
+                
+                Image(systemName: "play.circle")
+                    .font(.system(size: 24))
+                    .foregroundColor(.blue)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Audio Attachment Player
+struct AudioAttachmentPlayer: View {
+    let attachment: Attachment
+    @State private var player: AVAudioPlayer?
+    @State private var isPlaying = false
+    @State private var currentTime: TimeInterval = 0
+    @State private var duration: TimeInterval = 0
+    @State private var timer: Timer?
+    @State private var hasError = false
+    @State private var errorMessage: String?
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 30) {
+                
+                // Audio visualization
+                ZStack {
+                    Circle()
+                        .fill(Color.blue.opacity(0.1))
+                        .frame(width: 200, height: 200)
+                    
+                    Image(systemName: "waveform.circle.fill")
+                        .font(.system(size: 80))
+                        .foregroundColor(.blue)
+                        .scaleEffect(isPlaying ? 1.1 : 1.0)
+                        .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: isPlaying)
+                }
+                
+                // Time display
+                VStack(spacing: 8) {
+                    HStack {
+                        Text(formatTime(currentTime))
+                        Spacer()
+                        Text(formatTime(duration))
+                    }
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    
+                    // Progress bar
+                    ProgressView(value: duration > 0 ? currentTime / duration : 0)
+                        .progressViewStyle(LinearProgressViewStyle(tint: .blue))
+                }
+                
+                // Play/Pause button
+                Button(action: togglePlayback) {
+                    Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                        .font(.system(size: 60))
+                        .foregroundColor(.blue)
+                }
+                .disabled(hasError)
+                
+                if hasError, let errorMessage = errorMessage {
+                    Text("Error: \(errorMessage)")
+                        .foregroundColor(.red)
+                        .font(.caption)
+                        .multilineTextAlignment(.center)
+                        .padding()
+                }
+                
+                Spacer()
+            }
+            .padding()
+            .navigationTitle("Voice Recording")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        stopPlayback()
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .onAppear {
+            setupPlayer()
+        }
+        .onDisappear {
+            stopPlayback()
+        }
+    }
+    
+    private func setupPlayer() {
+        guard let relativePath = attachment.relativePath,
+              let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            hasError = true
+            errorMessage = "Could not locate audio file"
+            return
+        }
+        
+        let encryptedURL = appSupport.appendingPathComponent(relativePath)
+        
+        Task {
+            do {
+                // Decrypt the audio file
+                let key = try KeyManager.shared.getEncryptionKey()
+                let encryptedData = try Data(contentsOf: encryptedURL)
+                
+                // Extract components (same format as video encryption)
+                let nonceData = encryptedData.prefix(12)
+                let tagData = encryptedData.suffix(16)
+                let ciphertextData = encryptedData.dropFirst(12).dropLast(16)
+                
+                let nonce = try AES.GCM.Nonce(data: nonceData)
+                let sealedBox = try AES.GCM.SealedBox(nonce: nonce, ciphertext: ciphertextData, tag: tagData)
+                let decryptedData = try AES.GCM.open(sealedBox, using: key)
+                
+                // Create player from decrypted data
+                await MainActor.run {
+                    do {
+                        self.player = try AVAudioPlayer(data: decryptedData)
+                        self.duration = player?.duration ?? 0
+                        try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+                        try AVAudioSession.sharedInstance().setActive(true)
+                    } catch {
+                        self.hasError = true
+                        self.errorMessage = "Failed to create audio player: \(error.localizedDescription)"
+                    }
+                }
+                
+            } catch {
+                await MainActor.run {
+                    self.hasError = true
+                    self.errorMessage = "Failed to decrypt audio: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+    
+    private func togglePlayback() {
+        guard let player = player else { return }
+        
+        if isPlaying {
+            player.pause()
+            timer?.invalidate()
+            timer = nil
+        } else {
+            player.play()
+            startTimer()
+        }
+        isPlaying = player.isPlaying
+    }
+    
+    private func stopPlayback() {
+        player?.stop()
+        timer?.invalidate()
+        timer = nil
+        isPlaying = false
+        currentTime = 0
+    }
+    
+    private func startTimer() {
+        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
+            if let player = player {
+                currentTime = player.currentTime
+                if !player.isPlaying {
+                    isPlaying = false
+                    timer?.invalidate()
+                    timer = nil
+                }
+            }
+        }
+    }
+    
+    private func formatTime(_ time: TimeInterval) -> String {
+        let minutes = Int(time) / 60
+        let seconds = Int(time) % 60
+        return String(format: "%d:%02d", minutes, seconds)
+    }
+}
+
+// MARK: - Voice Recorder View
+struct VoiceRecorderView: View {
+    let onComplete: (URL?) -> Void
+    
+    @State private var audioRecorder: AVAudioRecorder?
+    @State private var isRecording = false
+    @State private var hasRecording = false
+    @State private var recordingTime: TimeInterval = 0
+    @State private var timer: Timer?
+    @State private var recordingURL: URL?
+    @State private var hasError = false
+    @State private var errorMessage = ""
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 40) {
+                
+                // Recording visualization
+                ZStack {
+                    Circle()
+                        .fill(isRecording ? Color.red.opacity(0.2) : Color.gray.opacity(0.1))
+                        .frame(width: 200, height: 200)
+                        .animation(.easeInOut(duration: 0.3), value: isRecording)
+                    
+                    Image(systemName: isRecording ? "mic.fill" : "mic")
+                        .font(.system(size: 80))
+                        .foregroundColor(isRecording ? .red : .gray)
+                        .scaleEffect(isRecording ? 1.2 : 1.0)
+                        .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: isRecording)
+                }
+                
+                // Time display
+                Text(formatTime(recordingTime))
+                    .font(.system(.title, design: .monospaced))
+                    .foregroundColor(isRecording ? .red : .primary)
+                
+                // Recording controls
+                HStack(spacing: 40) {
+                    // Record/Stop button
+                    Button(action: toggleRecording) {
+                        Image(systemName: isRecording ? "stop.circle.fill" : "record.circle")
+                            .font(.system(size: 60))
+                            .foregroundColor(isRecording ? .red : .blue)
+                    }
+                    .disabled(hasError)
+                    
+                    // Use button (only show if we have a recording)
+                    if hasRecording && !isRecording {
+                        Button(action: useRecording) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 60))
+                                .foregroundColor(.green)
+                        }
+                    }
+                }
+                
+                if hasError {
+                    Text("Error: \(errorMessage)")
+                        .foregroundColor(.red)
+                        .font(.caption)
+                        .multilineTextAlignment(.center)
+                        .padding()
+                }
+                
+                Spacer()
+            }
+            .padding()
+            .navigationTitle("Voice Recorder")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        stopRecording()
+                        onComplete(nil)
+                    }
+                }
+            }
+        }
+        .onAppear {
+            setupRecorder()
+        }
+        .onDisappear {
+            stopRecording()
+        }
+    }
+    
+    private func setupRecorder() {
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.record, mode: .default)
+            try AVAudioSession.sharedInstance().setActive(true)
+            
+            // Request permission
+            AVAudioSession.sharedInstance().requestRecordPermission { granted in
+                DispatchQueue.main.async {
+                    if !granted {
+                        self.hasError = true
+                        self.errorMessage = "Microphone permission is required"
+                    }
+                }
+            }
+            
+            // Create recording URL
+            let tempDir = FileManager.default.temporaryDirectory
+            recordingURL = tempDir.appendingPathComponent("voice_recording_\(UUID().uuidString).m4a")
+            
+            // Configure recorder
+            let settings: [String: Any] = [
+                AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+                AVSampleRateKey: 44100,
+                AVNumberOfChannelsKey: 1,
+                AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
+            ]
+            
+            if let url = recordingURL {
+                audioRecorder = try AVAudioRecorder(url: url, settings: settings)
+                audioRecorder?.prepareToRecord()
+            }
+            
+        } catch {
+            hasError = true
+            errorMessage = "Failed to setup audio recorder: \(error.localizedDescription)"
+        }
+    }
+    
+    private func toggleRecording() {
+        if isRecording {
+            stopRecording()
+        } else {
+            startRecording()
+        }
+    }
+    
+    private func startRecording() {
+        guard let recorder = audioRecorder else { return }
+        
+        do {
+            try AVAudioSession.sharedInstance().setActive(true)
+            recorder.record()
+            isRecording = true
+            recordingTime = 0
+            
+            timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
+                recordingTime = recorder.currentTime
+            }
+        } catch {
+            hasError = true
+            errorMessage = "Failed to start recording: \(error.localizedDescription)"
+        }
+    }
+    
+    private func stopRecording() {
+        audioRecorder?.stop()
+        timer?.invalidate()
+        timer = nil
+        isRecording = false
+        
+        if recordingTime > 0 {
+            hasRecording = true
+        }
+        
+        do {
+            try AVAudioSession.sharedInstance().setActive(false)
+        } catch {
+            print("Failed to deactivate audio session: \(error)")
+        }
+    }
+    
+    private func useRecording() {
+        onComplete(recordingURL)
+    }
+    
+    private func formatTime(_ time: TimeInterval) -> String {
+        let minutes = Int(time) / 60
+        let seconds = Int(time) % 60
+        let centiseconds = Int((time.truncatingRemainder(dividingBy: 1)) * 10)
+        return String(format: "%d:%02d.%d", minutes, seconds, centiseconds)
     }
 }
 

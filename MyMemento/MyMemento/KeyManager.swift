@@ -241,6 +241,22 @@ class KeyManager {
         return keyData as Data
     }
     
+    /// Returns the RSA private key in DER format for import operations
+    /// - Returns: The private key data in DER format
+    /// - Throws: KeyManagerError if key operations fail
+    func getExportPrivateKeyData() throws -> Data {
+        let privateKey = try getExportPrivateKey()
+        
+        var error: Unmanaged<CFError>?
+        guard let keyData = SecKeyCopyExternalRepresentation(privateKey, &error) else {
+            let keyError = error?.takeRetainedValue() as Error? ?? KeyManagerError.invalidRSAKeyData
+            ErrorManager.shared.handleError(keyError, context: "Failed to extract private key data")
+            throw KeyManagerError.invalidRSAKeyData
+        }
+        
+        return keyData as Data
+    }
+    
     // MARK: - Private RSA Key Management
     
     /// Generates and stores a new RSA keypair in the keychain

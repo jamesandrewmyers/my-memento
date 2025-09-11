@@ -266,6 +266,112 @@ struct CryptoHelper {
         }
     }
     
+    /// Unwraps (decrypts) an export key using RSA-OAEP-SHA256
+    /// - Parameters:
+    ///   - wrappedKey: The encrypted key data
+    ///   - privateKeyData: The RSA private key data (PEM or DER format)
+    /// - Returns: The unwrapped symmetric key
+    /// - Throws: CryptoError if key unwrapping fails
+    static func unwrapExportKey(wrappedKey: Data, with privateKeyData: Data) throws -> SymmetricKey {
+        do {
+            // Create SecKey from private key data
+            let privateKey: SecKey
+            
+            // Try DER format first
+            var error: Unmanaged<CFError>?
+            if let derKey = SecKeyCreateWithData(privateKeyData as CFData, [
+                kSecAttrKeyType: kSecAttrKeyTypeRSA,
+                kSecAttrKeyClass: kSecAttrKeyClassPrivate
+            ] as CFDictionary, &error) {
+                privateKey = derKey
+            } else {
+                // Try PEM format - remove headers and decode base64
+                let pemString = String(data: privateKeyData, encoding: .utf8) ?? ""
+                let base64String = pemString
+                    .replacingOccurrences(of: "-----BEGIN PRIVATE KEY-----", with: "")
+                    .replacingOccurrences(of: "-----END PRIVATE KEY-----", with: "")
+                    .replacingOccurrences(of: "-----BEGIN RSA PRIVATE KEY-----", with: "")
+                    .replacingOccurrences(of: "-----END RSA PRIVATE KEY-----", with: "")
+                    .replacingOccurrences(of: "\n", with: "")
+                    .replacingOccurrences(of: "\r", with: "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                
+                guard let decodedData = Data(base64Encoded: base64String),
+                      let pemKey = SecKeyCreateWithData(decodedData as CFData, [
+                        kSecAttrKeyType: kSecAttrKeyTypeRSA,
+                        kSecAttrKeyClass: kSecAttrKeyClassPrivate
+                      ] as CFDictionary, &error) else {
+                    ErrorManager.shared.handleError(CryptoError.invalidPublicKey, context: "Failed to create SecKey from private key data")
+                    throw CryptoError.invalidPublicKey
+                }
+                privateKey = pemKey
+            }
+            
+            // Decrypt the key using RSA-OAEP with SHA-256
+            guard let decryptedData = SecKeyCreateDecryptedData(
+                privateKey,
+                .rsaEncryptionOAEPSHA256,
+                wrappedKey as CFData,
+                &error
+            ) else {
+                let unwrappingError = error?.takeRetainedValue() as Error? ?? CryptoError.keyWrappingFailed
+                ErrorManager.shared.handleError(unwrappingError, context: "RSA key unwrapping failed")
+                throw CryptoError.keyWrappingFailed
+            }
+            
+            // Convert back to SymmetricKey
+            return SymmetricKey(data: decryptedData as Data)
+            
+        } catch {
+            ErrorManager.shared.handleError(error, context: "Export key unwrapping failed")
+            if error is CryptoError {
+                throw error
+            } else {
+                throw CryptoError.keyWrappingFailed
+            }
+        }
+    }
+    
+    /// Decrypts an export bundle using AES-GCM
+    /// - Parameters:
+    ///   - encryptedURL: URL of the encrypted bundle file
+    ///   - key: The symmetric key for decryption
+    ///   - nonce: The nonce used for encryption
+    ///   - tag: The authentication tag
+    /// - Returns: URL of the decrypted file
+    /// - Throws: CryptoError if decryption fails
+    static func decryptExportBundle(encryptedURL: URL, key: SymmetricKey, nonce: Data, tag: Data) async throws -> URL {
+        do {
+            // Read the encrypted data (skip nonce, just read ciphertext)
+            let encryptedData = try Data(contentsOf: encryptedURL)
+            
+            // Extract ciphertext (skip first 12 bytes of nonce, last 16 bytes of tag)
+            let nonceSize = 12
+            let tagSize = 16
+            let ciphertext = encryptedData.dropFirst(nonceSize).dropLast(tagSize)
+            
+            // Create sealed box
+            let sealedBox = try AES.GCM.SealedBox(
+                nonce: AES.GCM.Nonce(data: nonce),
+                ciphertext: ciphertext,
+                tag: tag
+            )
+            
+            // Decrypt
+            let decryptedData = try AES.GCM.open(sealedBox, using: key)
+            
+            // Write to temporary file
+            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".zip")
+            try decryptedData.write(to: tempURL)
+            
+            return tempURL
+            
+        } catch {
+            ErrorManager.shared.handleError(error, context: "Export bundle decryption failed")
+            throw CryptoError.decryptionFailed
+        }
+    }
+    
     /// Wraps (encrypts) an export key using RSA-OAEP-SHA256
     /// - Parameters:
     ///   - key: The symmetric key to encrypt

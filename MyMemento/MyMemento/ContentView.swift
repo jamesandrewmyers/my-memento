@@ -9,6 +9,7 @@ import SwiftUI
 import CoreData
 import OSLog
 import Foundation
+import UniformTypeIdentifiers
 
 enum SortOption: String, CaseIterable {
     case createdAt = "Created"
@@ -40,6 +41,13 @@ struct ContentView: View {
     @State private var isExporting = false
     @State private var exportProgress = 0.0
     @State private var exportStatusMessage = ""
+    @State private var showImportPicker = false
+    @State private var showImportOptions = false
+    @State private var isImporting = false
+    @State private var importProgress = 0.0
+    @State private var importStatusMessage = ""
+    @State private var shouldOverwriteExisting = false
+    @State private var selectedImportURL: URL?
 
     @State private var exportedFileURL: URL?
     
@@ -251,6 +259,17 @@ struct ContentView: View {
                 
                 ToolbarItem(placement: .navigationBarTrailing) {
                     HStack {
+                        Button(action: { showImportPicker = true }) {
+                            if isImporting {
+                                ProgressView()
+                                    .scaleEffect(0.8)
+                            } else {
+                                Image(systemName: "square.and.arrow.down")
+                                    .foregroundColor(.primary)
+                            }
+                        }
+                        .disabled(isExporting || isImporting)
+                        
                         Button(action: { showExportDialog = true }) {
                             if isExporting {
                                 ProgressView()
@@ -260,18 +279,18 @@ struct ContentView: View {
                                     .foregroundColor(.primary)
                             }
                         }
-                        .disabled(isExporting)
+                        .disabled(isExporting || isImporting)
                         
                         Button(action: toggleDeleteMode) {
                             Image(systemName: "minus")
                                 .foregroundColor(isDeleteMode ? .red : .primary)
                         }
-                        .disabled(isExporting)
+                        .disabled(isExporting || isImporting)
                         
                         Button(action: addNote) {
                             Image(systemName: "plus")
                         }
-                        .disabled(isExporting)
+                        .disabled(isExporting || isImporting)
                     }
                 }
             }
@@ -289,22 +308,22 @@ struct ContentView: View {
             // Progress overlay
             .overlay(
                 Group {
-                    if isExporting {
+                    if isExporting || isImporting {
                         ZStack {
                             Color.black.opacity(0.3)
                                 .ignoresSafeArea()
                             
                             VStack(spacing: 20) {
-                                ProgressView(value: exportProgress)
+                                ProgressView(value: isExporting ? exportProgress : importProgress)
                                     .progressViewStyle(LinearProgressViewStyle())
                                     .frame(width: 200)
                                 
-                                Text(exportStatusMessage)
+                                Text(isExporting ? exportStatusMessage : importStatusMessage)
                                     .font(.subheadline)
                                     .foregroundColor(.primary)
                                     .multilineTextAlignment(.center)
                                 
-                                Text("\(Int(exportProgress * 100))%")
+                                Text("\(Int((isExporting ? exportProgress : importProgress) * 100))%")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
@@ -321,6 +340,28 @@ struct ContentView: View {
                 set: { _ in exportedFileURL = nil }
             )) { fileItem in
                 ShareSheet(activityItems: [fileItem.url])
+            }
+            // Import file picker
+            .fileImporter(
+                isPresented: $showImportPicker,
+                allowedContentTypes: [.zip],
+                allowsMultipleSelection: false
+            ) { result in
+                handleImportFile(result)
+            }
+            // Import options dialog
+            .alert("Import Options", isPresented: $showImportOptions) {
+                Button("Create New Notes") {
+                    shouldOverwriteExisting = false
+                    startImport()
+                }
+                Button("Overwrite Existing Notes") {
+                    shouldOverwriteExisting = true
+                    startImport()
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("How should imported notes be handled?\n\nCreate New Notes: All notes get new IDs\nOverwrite Existing: Notes with matching IDs will be replaced")
             }
             .alert("Error", isPresented: $errorManager.showError) {
                 Button("OK") { }
@@ -917,6 +958,464 @@ struct ContentView: View {
         endRecord.append(Data([0x00, 0x00])) // Comment length
         
         return endRecord
+    }
+    
+    // MARK: - Import Functions
+    
+    private func handleImportFile(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            
+            // Start accessing security-scoped resource for file picker URLs
+            guard url.startAccessingSecurityScopedResource() else {
+                errorManager.handleError(
+                    NSError(domain: "ImportError", code: 1, userInfo: [NSLocalizedDescriptionKey: "Cannot access selected file. Please try again."]),
+                    context: "Failed to access security-scoped resource"
+                )
+                return
+            }
+            
+            // Store the selected file URL and show options dialog
+            selectedImportURL = url
+            showImportOptions = true
+            
+        case .failure(let error):
+            errorManager.handleError(error, context: "Failed to select import file")
+        }
+    }
+    
+    private func startImport() {
+        guard selectedImportURL != nil else { return }
+        
+        isImporting = true
+        importProgress = 0.0
+        importStatusMessage = "Preparing import..."
+        
+        Task { @MainActor in
+            do {
+                try await importNotesFromFile(selectedImportURL!)
+            } catch {
+                isImporting = false
+                importProgress = 0.0
+                importStatusMessage = ""
+                
+                // Stop accessing security-scoped resource
+                selectedImportURL?.stopAccessingSecurityScopedResource()
+                selectedImportURL = nil
+                
+                errorManager.handleError(error, context: "Import failed")
+            }
+        }
+    }
+    
+    private func importNotesFromFile(_ fileURL: URL) async throws {
+        importProgress = 0.1
+        importStatusMessage = "Reading import file..."
+        
+        // Create temporary directory for extraction
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+        
+        importProgress = 0.2
+        importStatusMessage = "Extracting notes..."
+        
+        // Extract ZIP file
+        try await extractZipFile(from: fileURL, to: tempDir)
+        
+        importProgress = 0.3
+        importStatusMessage = "Decrypting notes..."
+        
+        // Find all .memento files in the extracted content
+        let notesDir = tempDir.appendingPathComponent("notes")
+        guard FileManager.default.fileExists(atPath: notesDir.path) else {
+            throw NSError(domain: "ImportError", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid import file: no notes directory found"])
+        }
+        
+        let mementoFiles = try FileManager.default.contentsOfDirectory(at: notesDir, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "memento" }
+        
+        guard !mementoFiles.isEmpty else {
+            throw NSError(domain: "ImportError", code: 2, userInfo: [NSLocalizedDescriptionKey: "No encrypted notes found in import file"])
+        }
+        
+        importProgress = 0.4
+        importStatusMessage = "Processing \(mementoFiles.count) notes..."
+        
+        // Get local decryption key
+        let privateKeyData = try KeyManager.shared.getExportPrivateKeyData()
+        
+        // Process each note
+        let totalNotes = Double(mementoFiles.count)
+        var importedCount = 0
+        var overwrittenCount = 0
+        
+        for (index, mementoFile) in mementoFiles.enumerated() {
+            let noteProgress = Double(index) / totalNotes
+            let overallProgress = 0.4 + (noteProgress * 0.5) // 40% to 90% for note processing
+            importProgress = overallProgress
+            
+            importStatusMessage = "Importing note \(index + 1) of \(mementoFiles.count)..."
+            
+            do {
+                let wasOverwritten = try await importSingleNote(from: mementoFile, privateKey: privateKeyData)
+                if wasOverwritten {
+                    overwrittenCount += 1
+                } else {
+                    importedCount += 1
+                }
+            } catch {
+                logger.error("Failed to import note from \(mementoFile.lastPathComponent): \(error.localizedDescription)")
+                // Continue with other notes
+            }
+        }
+        
+        importProgress = 0.9
+        importStatusMessage = "Finalizing import..."
+        
+        // Save context
+        try viewContext.save()
+        
+        // Refresh the index
+        noteIndexViewModel.refreshIndex(from: viewContext)
+        
+        importProgress = 1.0
+        importStatusMessage = "Import completed!"
+        
+        // Show completion message
+        let message = shouldOverwriteExisting ? 
+            "Imported \(importedCount) new notes and overwrote \(overwrittenCount) existing notes." :
+            "Imported \(importedCount + overwrittenCount) notes with new IDs."
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            self.isImporting = false
+            self.importStatusMessage = ""
+            
+            // Stop accessing security-scoped resource
+            self.selectedImportURL?.stopAccessingSecurityScopedResource()
+            self.selectedImportURL = nil
+            
+            // Show success alert
+            self.errorManager.handleError(
+                NSError(domain: "ImportSuccess", code: 0, userInfo: [NSLocalizedDescriptionKey: message]), 
+                context: "Import completed successfully"
+            )
+        }
+    }
+    
+    private func extractZipFile(from zipURL: URL, to destinationURL: URL) async throws {
+        // Create destination directory if it doesn't exist
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: destinationURL, withIntermediateDirectories: true, attributes: nil)
+        
+        // Since iOS doesn't have built-in ZIP extraction, we'll implement basic ZIP reading
+        // This is a simplified implementation for .memento and basic ZIP files
+        return try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    try self.extractZipFileManually(from: zipURL, to: destinationURL)
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: NSError(domain: "ImportError", code: 3, userInfo: [NSLocalizedDescriptionKey: "Failed to extract zip file: \(error.localizedDescription)"]))
+                }
+            }
+        }
+    }
+    
+    private func extractZipFileManually(from zipURL: URL, to destinationURL: URL) throws {
+        // Read ZIP file data
+        let zipData = try Data(contentsOf: zipURL)
+        guard zipData.count > 22 else { // Minimum ZIP file size (end of central directory)
+            throw NSError(domain: "ImportError", code: 3, userInfo: [NSLocalizedDescriptionKey: "Invalid ZIP file: too small"])
+        }
+        
+        // Find End of Central Directory Record (EOCD)
+        guard let eocdOffset = findEndOfCentralDirectoryRecord(in: zipData) else {
+            throw NSError(domain: "ImportError", code: 3, userInfo: [NSLocalizedDescriptionKey: "Invalid ZIP file: no end of central directory"])
+        }
+        
+        // Parse EOCD
+        let eocdData = zipData.subdata(in: eocdOffset..<zipData.count)
+        let centralDirectoryEntries = UInt16(eocdData[8]) | (UInt16(eocdData[9]) << 8)
+        let _ = UInt32(eocdData[12]) | (UInt32(eocdData[13]) << 8) | (UInt32(eocdData[14]) << 16) | (UInt32(eocdData[15]) << 24) // centralDirectorySize (unused)
+        let centralDirectoryOffset = UInt32(eocdData[16]) | (UInt32(eocdData[17]) << 8) | (UInt32(eocdData[18]) << 16) | (UInt32(eocdData[19]) << 24)
+        
+        // Read central directory
+        var currentOffset = Int(centralDirectoryOffset)
+        for _ in 0..<centralDirectoryEntries {
+            guard currentOffset + 46 <= zipData.count else { break }
+            
+            let cdData = zipData.subdata(in: currentOffset..<min(currentOffset + 46, zipData.count))
+            
+            // Verify central directory signature
+            let signature = UInt32(cdData[0]) | (UInt32(cdData[1]) << 8) | (UInt32(cdData[2]) << 16) | (UInt32(cdData[3]) << 24)
+            guard signature == 0x02014b50 else { continue }
+            
+            let compressionMethod = UInt16(cdData[10]) | (UInt16(cdData[11]) << 8)
+            let compressedSize = UInt32(cdData[20]) | (UInt32(cdData[21]) << 8) | (UInt32(cdData[22]) << 16) | (UInt32(cdData[23]) << 24)
+            let _ = UInt32(cdData[24]) | (UInt32(cdData[25]) << 8) | (UInt32(cdData[26]) << 16) | (UInt32(cdData[27]) << 24) // uncompressedSize (unused)
+            let fileNameLength = UInt16(cdData[28]) | (UInt16(cdData[29]) << 8)
+            let extraFieldLength = UInt16(cdData[30]) | (UInt16(cdData[31]) << 8)
+            let commentLength = UInt16(cdData[32]) | (UInt16(cdData[33]) << 8)
+            let localHeaderOffset = UInt32(cdData[42]) | (UInt32(cdData[43]) << 8) | (UInt32(cdData[44]) << 16) | (UInt32(cdData[45]) << 24)
+            
+            // Read filename
+            let filenameRange = (currentOffset + 46)..<(currentOffset + 46 + Int(fileNameLength))
+            guard filenameRange.upperBound <= zipData.count else { continue }
+            let filenameData = zipData.subdata(in: filenameRange)
+            guard let filename = String(data: filenameData, encoding: .utf8) else { continue }
+            
+            // Skip directories
+            guard !filename.hasSuffix("/") else {
+                currentOffset += 46 + Int(fileNameLength) + Int(extraFieldLength) + Int(commentLength)
+                continue
+            }
+            
+            // Read local file header to get actual file data
+            let localHeaderStart = Int(localHeaderOffset)
+            guard localHeaderStart + 30 <= zipData.count else { continue }
+            
+            let localHeaderData = zipData.subdata(in: localHeaderStart..<(localHeaderStart + 30))
+            let localFileNameLength = UInt16(localHeaderData[26]) | (UInt16(localHeaderData[27]) << 8)
+            let localExtraFieldLength = UInt16(localHeaderData[28]) | (UInt16(localHeaderData[29]) << 8)
+            
+            let fileDataStart = localHeaderStart + 30 + Int(localFileNameLength) + Int(localExtraFieldLength)
+            let fileDataEnd = fileDataStart + Int(compressedSize)
+            
+            guard fileDataEnd <= zipData.count else { continue }
+            
+            let compressedData = zipData.subdata(in: fileDataStart..<fileDataEnd)
+            
+            // Only support uncompressed files for now
+            guard compressionMethod == 0 else {
+                logger.warning("Skipping compressed file: \(filename)")
+                currentOffset += 46 + Int(fileNameLength) + Int(extraFieldLength) + Int(commentLength)
+                continue
+            }
+            
+            // Create output file
+            let outputURL = destinationURL.appendingPathComponent(filename)
+            let outputDir = outputURL.deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true, attributes: nil)
+            
+            try compressedData.write(to: outputURL)
+            
+            currentOffset += 46 + Int(fileNameLength) + Int(extraFieldLength) + Int(commentLength)
+        }
+    }
+    
+    private func findEndOfCentralDirectoryRecord(in data: Data) -> Int? {
+        // EOCD signature: 0x06054b50
+        let signature: [UInt8] = [0x50, 0x4b, 0x05, 0x06]
+        
+        // Search backwards from the end of the file
+        for i in stride(from: data.count - 22, through: 0, by: -1) {
+            if i + 4 <= data.count {
+                let potentialSignature = data.subdata(in: i..<(i + 4))
+                if potentialSignature.elementsEqual(signature) {
+                    return i
+                }
+            }
+        }
+        
+        return nil
+    }
+    
+    private func importSingleNote(from mementoURL: URL, privateKey: Data) async throws -> Bool {
+        // Create temporary directory for this note
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+        
+        // Extract the .memento file (which is a zip)
+        try await extractZipFile(from: mementoURL, to: tempDir)
+        
+        // Read manifest.json
+        let manifestURL = tempDir.appendingPathComponent("manifest.json")
+        guard FileManager.default.fileExists(atPath: manifestURL.path) else {
+            throw NSError(domain: "ImportError", code: 4, userInfo: [NSLocalizedDescriptionKey: "Invalid note file: missing manifest"])
+        }
+        
+        let manifestData = try Data(contentsOf: manifestURL)
+        guard let manifest = try JSONSerialization.jsonObject(with: manifestData) as? [String: Any] else {
+            throw NSError(domain: "ImportError", code: 5, userInfo: [NSLocalizedDescriptionKey: "Invalid manifest format"])
+        }
+        
+        // Extract note metadata
+        guard let noteIdString = manifest["noteId"] as? String,
+              let noteId = UUID(uuidString: noteIdString),
+              let title = manifest["title"] as? String,
+              let tags = manifest["tags"] as? [String],
+              let createdAtString = manifest["createdAt"] as? String,
+              let updatedAtString = manifest["updatedAt"] as? String,
+              let pinned = manifest["pinned"] as? Bool,
+              let crypto = manifest["crypto"] as? [String: Any],
+              let nonceString = crypto["nonce"] as? String,
+              let tagString = crypto["tag"] as? String else {
+            throw NSError(domain: "ImportError", code: 6, userInfo: [NSLocalizedDescriptionKey: "Invalid manifest data"])
+        }
+        
+        // Parse dates
+        let iso8601Formatter = ISO8601DateFormatter()
+        guard let createdAt = iso8601Formatter.date(from: createdAtString),
+              let updatedAt = iso8601Formatter.date(from: updatedAtString) else {
+            throw NSError(domain: "ImportError", code: 7, userInfo: [NSLocalizedDescriptionKey: "Invalid date format in manifest"])
+        }
+        
+        // Decrypt the note content
+        let encryptedURL = tempDir.appendingPathComponent("export.enc")
+        let keyURL = tempDir.appendingPathComponent("key.enc")
+        
+        guard FileManager.default.fileExists(atPath: encryptedURL.path),
+              FileManager.default.fileExists(atPath: keyURL.path) else {
+            throw NSError(domain: "ImportError", code: 8, userInfo: [NSLocalizedDescriptionKey: "Missing encrypted content files"])
+        }
+        
+        // Unwrap the AES key with our private key
+        let wrappedKey = try Data(contentsOf: keyURL)
+        let aesKey = try CryptoHelper.unwrapExportKey(wrappedKey: wrappedKey, with: privateKey)
+        
+        // Decrypt the content
+        let nonce = Data(base64Encoded: nonceString)!
+        let tag = Data(base64Encoded: tagString)!
+        let decryptedURL = try await CryptoHelper.decryptExportBundle(
+            encryptedURL: encryptedURL,
+            key: aesKey,
+            nonce: nonce,
+            tag: tag
+        )
+        
+        // Extract the decrypted content
+        let contentDir = tempDir.appendingPathComponent("content")
+        try await extractZipFile(from: decryptedURL, to: contentDir)
+        
+        // Read body.html
+        let bodyURL = contentDir.appendingPathComponent("body.html")
+        guard FileManager.default.fileExists(atPath: bodyURL.path) else {
+            throw NSError(domain: "ImportError", code: 9, userInfo: [NSLocalizedDescriptionKey: "Missing note body content"])
+        }
+        
+        let htmlString = try String(contentsOf: bodyURL, encoding: .utf8)
+        
+        // Convert HTML back to NSAttributedString
+        guard let htmlData = htmlString.data(using: .utf8) else {
+            throw NSError(domain: "ImportError", code: 10, userInfo: [NSLocalizedDescriptionKey: "Invalid HTML content"])
+        }
+        
+        let attributedString = try NSAttributedString(
+            data: htmlData,
+            options: [
+                .documentType: NSAttributedString.DocumentType.html,
+                .characterEncoding: String.Encoding.utf8.rawValue
+            ],
+            documentAttributes: nil
+        )
+        
+        // Check if note with this ID already exists
+        let existingNote = fetchNote(by: noteId)
+        let note: Note
+        var wasOverwritten = false
+        
+        if let existing = existingNote, shouldOverwriteExisting {
+            // Overwrite existing note
+            note = existing
+            wasOverwritten = true
+        } else {
+            // Create new note (with new ID if not overwriting)
+            note = Note(context: viewContext)
+            note.id = shouldOverwriteExisting ? noteId : UUID()
+            note.createdAt = createdAt
+        }
+        
+        // Update note properties
+        note.isPinned = pinned
+        
+        // Create note payload
+        let notePayload = NotePayload(
+            title: title,
+            body: NSAttributedStringWrapper(attributedString),
+            tags: tags,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            pinned: pinned
+        )
+        
+        // Encrypt and save
+        let encryptionKey = try KeyManager.shared.getEncryptionKey()
+        let encryptedData = try CryptoHelper.encrypt(notePayload, key: encryptionKey)
+        note.encryptedData = encryptedData
+        
+        // Handle tags - create or find existing tags
+        var tagEntities: [Tag] = []
+        for tagName in tags {
+            let request: NSFetchRequest<Tag> = Tag.fetchRequest()
+            request.predicate = NSPredicate(format: "name == %@", tagName)
+            
+            if let existingTag = try viewContext.fetch(request).first {
+                tagEntities.append(existingTag)
+            } else {
+                let newTag = Tag(context: viewContext)
+                newTag.id = UUID()
+                newTag.name = tagName
+                newTag.createdAt = Date()
+                tagEntities.append(newTag)
+            }
+        }
+        note.tags = NSSet(array: tagEntities)
+        
+        // Create search index
+        let indexPayload = IndexPayload(
+            id: note.id!,
+            title: title,
+            tags: tags,
+            summary: attributedString.string.prefix(200).description,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            pinned: pinned
+        )
+        
+        let searchIndex = SearchIndex(context: viewContext)
+        searchIndex.id = note.id
+        let encryptedIndexData = try CryptoHelper.encrypt(indexPayload, key: encryptionKey)
+        searchIndex.encryptedIndexData = encryptedIndexData
+        
+        // TODO: Handle attachments if present
+        let attachmentsDir = contentDir.appendingPathComponent("attachments")
+        if FileManager.default.fileExists(atPath: attachmentsDir.path) {
+            try await importAttachments(from: attachmentsDir, to: note)
+        }
+        
+        return wasOverwritten
+    }
+    
+    private func importAttachments(from attachmentsDir: URL, to note: Note) async throws {
+        let attachmentFiles = try FileManager.default.contentsOfDirectory(at: attachmentsDir, includingPropertiesForKeys: nil)
+        
+        for attachmentFile in attachmentFiles {
+            // let fileName = attachmentFile.lastPathComponent // Unused variable
+            let fileExtension = attachmentFile.pathExtension.lowercased()
+            
+            // Determine attachment type and create appropriate attachment
+            if ["mp4", "mov", "avi"].contains(fileExtension) {
+                _ = try await AttachmentManager.shared.createVideoAttachment(
+                    for: note,
+                    from: attachmentFile,
+                    context: viewContext
+                )
+            } else if ["mp3", "m4a", "wav"].contains(fileExtension) {
+                _ = try await AttachmentManager.shared.createAudioAttachment(
+                    for: note,
+                    from: attachmentFile,
+                    context: viewContext
+                )
+            }
+            // Skip unknown file types
+        }
     }
 }
 

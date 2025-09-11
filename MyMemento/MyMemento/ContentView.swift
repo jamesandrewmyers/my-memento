@@ -102,254 +102,79 @@ struct ContentView: View {
     var body: some View {
         NavigationStack(path: $navigationPath) {
             VStack {
-                VStack(alignment: .leading) {
-                    HStack {
-                        TextField("Search notes...", text: $searchText)
-                            .autocorrectionDisabled(true)
-                            .textInputAutocapitalization(.never)
-                            .textFieldStyle(RoundedBorderTextFieldStyle())
-                            .onChange(of: searchText) { _, newValue in
-                                updateTagSuggestions(for: newValue)
-                            }
-                            .overlay(
-                                HStack {
-                                    Spacer()
-                                    if !searchText.isEmpty {
-                                        Button(action: clearSearch) {
-                                            Image(systemName: "xmark.circle.fill")
-                                                .foregroundColor(.gray)
-                                        }
-                                        .padding(.trailing, 8)
-                                    }
-                                }
-                            )
-                        
-                        Button(action: performSearch) {
-                            Image(systemName: "magnifyingglass")
-                                .foregroundColor(.blue)
-                        }
-                        .padding(.leading, 4)
-                    }
-                    
-                    if showTagSuggestions {
-                        VStack(alignment: .leading, spacing: 0) {
-                            ForEach(tagSuggestions, id: \.self) { tag in
-                                Button(action: { selectTag(tag) }) {
-                                    HStack {
-                                        Text("#\(tag)")
-                                            .foregroundColor(.primary)
-                                        Spacer()
-                                    }
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 8)
-                                }
-                                .buttonStyle(PlainButtonStyle())
-                                .background(Color(UIColor.systemBackground))
-                                
-                                if tag != tagSuggestions.last {
-                                    Divider()
-                                }
-                            }
-                        }
-                        .background(Color(UIColor.systemBackground))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.gray.opacity(0.3), lineWidth: 1)
-                        )
-                        .cornerRadius(8)
-                        .shadow(radius: 2)
-                    }
-                }
-                .padding(.horizontal)
-                .padding(.top, 8)
-                
-                // Sort options
-                HStack {
-                    Text("Sort by:")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                    
-                    ForEach(SortOption.allCases, id: \.self) { option in
-                        Button(action: { sortOption = option }) {
-                            Text(option.rawValue.lowercased())
-                                .font(.subheadline)
-                                .foregroundColor(sortOption == option ? .blue : .secondary)
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                    }
-                    
-                    Spacer()
-                }
-                .padding(.horizontal)
-                .padding(.bottom, 8)
-                
-                List {
-                    if displayedIndices.isEmpty {
-                        Text("(no notes)")
-                            .foregroundColor(.secondary)
-                            .italic()
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .listRowSeparator(.hidden)
-                    } else {
-                        ForEach(displayedIndices, id: \.id) { indexPayload in
-                            HStack {
-                                if isDeleteMode {
-                                    Button(action: { deleteNoteFromIndex(indexPayload) }) {
-                                        Image(systemName: "x.circle.fill")
-                                            .foregroundColor(.red)
-                                            .font(.title2)
-                                    }
-                                    .buttonStyle(PlainButtonStyle())
-                                }
-                                
-                                NavigationLink(value: indexPayload) {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        HStack {
-                                            if indexPayload.pinned {
-                                                Image(systemName: "pin.fill")
-                                                    .foregroundColor(.orange)
-                                                    .font(.caption)
-                                            }
-                                            Text(indexPayload.title)
-                                                .font(.headline)
-                                                .foregroundColor(.primary)
-                                            Spacer()
-                                        }
-                                        
-                                        let tagString = tagsToString(indexPayload.tags)
-                                        if !tagString.isEmpty {
-                                            Text(tagString)
-                                                .font(.subheadline)
-                                                .foregroundColor(.secondary)
-                                        }
-                                    }
-                                    .padding(.vertical, 2)
-                                }
-                                .disabled(isDeleteMode)
-                                
-                                if !isDeleteMode {
-                                    Button(action: { togglePinForIndex(indexPayload) }) {
-                                        Image(systemName: indexPayload.pinned ? "pin.slash" : "pin")
-                                            .foregroundColor(indexPayload.pinned ? .orange : .gray)
-                                            .font(.title3)
-                                    }
-                                    .buttonStyle(PlainButtonStyle())
-                                }
-                            }
-                        }
-                        .onDelete(perform: isDeleteMode ? nil : deleteIndices)
-                    }
-                }
+                SearchBarView(
+                    searchText: $searchText,
+                    showTagSuggestions: $showTagSuggestions,
+                    tagSuggestions: $tagSuggestions,
+                    onSearch: performSearch,
+                    onClear: clearSearch,
+                    onSelectTag: selectTag,
+                    onUpdateTagSuggestions: updateTagSuggestions
+                )
+
+                SortOptionsView(sortOption: $sortOption)
+
+                NoteListView(
+                    indices: displayedIndices,
+                    isDeleteMode: $isDeleteMode,
+                    onTogglePin: togglePinForIndex,
+                    onDelete: deleteNoteFromIndex,
+                    onDeleteIndices: deleteIndices,
+                    tagsToString: tagsToString
+                )
                 .navigationTitle("Notes")
             }
             .navigationDestination(for: IndexPayload.self) { indexPayload in
                 NoteEditView(indexPayload: indexPayload)
                     .onDisappear {
-                        // Refresh index when returning from note editing
                         noteIndexViewModel.refreshIndex(from: viewContext)
                     }
             }
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button(action: { showTagList = true }) {
-                        Image(systemName: "tag")
-                            .foregroundColor(.primary)
-                    }
-                }
-                
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    HStack {
-                        Button(action: { showImportPicker = true }) {
-                            if isImporting {
-                                ProgressView()
-                                    .scaleEffect(0.8)
-                            } else {
-                                Image(systemName: "square.and.arrow.down")
-                                    .foregroundColor(.primary)
-                            }
-                        }
-                        .disabled(isExporting || isImporting)
-                        
-                        Button(action: { showExportDialog = true }) {
-                            if isExporting {
-                                ProgressView()
-                                    .scaleEffect(0.8)
-                            } else {
-                                Image(systemName: "square.and.arrow.up")
-                                    .foregroundColor(.primary)
-                            }
-                        }
-                        .disabled(isExporting || isImporting)
-                        
-                        Button(action: toggleDeleteMode) {
-                            Image(systemName: "minus")
-                                .foregroundColor(isDeleteMode ? .red : .primary)
-                        }
-                        .disabled(isExporting || isImporting)
-                        
-                        Button(action: addNote) {
-                            Image(systemName: "plus")
-                        }
-                        .disabled(isExporting || isImporting)
-                    }
-                }
+                ContentViewToolbar(
+                    showTagList: $showTagList,
+                    showImportPicker: $showImportPicker,
+                    showExportDialog: $showExportDialog,
+                    isDeleteMode: $isDeleteMode,
+                    isImporting: isImporting,
+                    isExporting: isExporting,
+                    onToggleDeleteMode: toggleDeleteMode,
+                    onAddNote: addNote
+                )
             }
             .sheet(isPresented: $showTagList) {
                 TagBrowserView()
             }
             .alert("Export Notes", isPresented: $showExportDialog) {
-                Button("OK") {
-                    exportAllNotesEncrypted()
-                }
+                Button("OK") { exportAllNotesEncrypted() }
                 Button("Cancel", role: .cancel) { }
             } message: {
                 Text("Export all notes as encrypted zip file?")
             }
-            // Progress overlay
             .overlay(
-                Group {
-                    if isExporting || isImporting {
-                        ZStack {
-                            Color.black.opacity(0.3)
-                                .ignoresSafeArea()
-                            
-                            VStack(spacing: 20) {
-                                ProgressView(value: isExporting ? exportProgress : importProgress)
-                                    .progressViewStyle(LinearProgressViewStyle())
-                                    .frame(width: 200)
-                                
-                                Text(isExporting ? exportStatusMessage : importStatusMessage)
-                                    .font(.subheadline)
-                                    .foregroundColor(.primary)
-                                    .multilineTextAlignment(.center)
-                                
-                                Text("\(Int((isExporting ? exportProgress : importProgress) * 100))%")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                            .padding(30)
-                            .background(Color(UIColor.systemBackground))
-                            .cornerRadius(12)
-                            .shadow(radius: 10)
-                        }
-                    }
-                }
+                ProgressOverlayView(
+                    isExporting: $isExporting,
+                    isImporting: $isImporting,
+                    exportProgress: $exportProgress,
+                    importProgress: $importProgress,
+                    exportStatusMessage: $exportStatusMessage,
+                    importStatusMessage: $importStatusMessage
+                )
             )
-            .sheet(item: Binding<ExportFileItem?>(
+            .sheet(item: Binding<ExportFileItem?>( 
                 get: { exportedFileURL.map { ExportFileItem(url: $0) } },
-                set: { _ in exportedFileURL = nil }
-            )) { fileItem in
-                ShareSheet(activityItems: [fileItem.url])
+                set: { _ in exportedFileURL = nil } 
+            )) { fileItem in 
+                ShareSheet(activityItems: [fileItem.url]) 
             }
-            // Import file picker
             .fileImporter(
                 isPresented: $showImportPicker,
                 allowedContentTypes: [.zip],
-                allowsMultipleSelection: false
-            ) { result in
-                handleImportFile(result)
-            }
-            // Import options dialog
+                allowsMultipleSelection: false,
+                onCompletion: { result in
+                    handleImportFile(result)
+                }
+            )
             .alert("Import Options", isPresented: $showImportOptions) {
                 Button("Create New Notes") {
                     shouldOverwriteExisting = false
@@ -1419,41 +1244,7 @@ struct ContentView: View {
     }
 }
 
-struct ShareSheet: UIViewControllerRepresentable {
-    let activityItems: [Any]
-    
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        var itemsToShare: [Any] = []
-        
-        for item in activityItems {
-            if let fileURL = item as? URL {
-                let provider = NSItemProvider(contentsOf: fileURL)!
-                provider.registerFileRepresentation(forTypeIdentifier: "app.jam.ios.memento",
-                                                  fileOptions: [],
-                                                  visibility: .all) { completion in
-                    completion(fileURL, true, nil)
-                    return nil
-                }
-                itemsToShare.append(provider)
-            } else {
-                itemsToShare.append(item)
-            }
-        }
-        
-        let controller = UIActivityViewController(activityItems: itemsToShare, applicationActivities: nil)
-        return controller
-    }
-    
-    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {
-    }
-}
 
-private let itemFormatter: DateFormatter = {
-    let formatter = DateFormatter()
-    formatter.dateStyle = .short
-    formatter.timeStyle = .medium
-    return formatter
-}()
 
 #Preview {
     ContentView().environment(\.managedObjectContext, PersistenceController.preview.container.viewContext)

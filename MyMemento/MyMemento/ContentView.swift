@@ -409,7 +409,7 @@ struct ContentView: View {
     }
 
     private func addNote() {
-        let noteId = UUID()
+        let noteId = NoteIDManager.generateNoteID()
         let now = Date()
         
         // Create a temporary IndexPayload for the new note
@@ -901,7 +901,7 @@ struct ContentView: View {
         importProgress = 0.9
         importStatusMessage = "Finalizing import..."
         
-        // Save context
+        // Save context (database constraint will handle uniqueness)
         try viewContext.save()
         
         // Refresh the index
@@ -1150,10 +1150,17 @@ struct ContentView: View {
             // Overwrite existing note
             note = existing
             wasOverwritten = true
+            
+            // Clean up existing attachments before importing new ones
+            if let existingAttachments = note.attachments as? Set<Attachment> {
+                for attachment in existingAttachments {
+                    try await AttachmentManager.shared.deleteAttachment(attachment, context: viewContext)
+                }
+            }
         } else {
-            // Create new note (with new ID if not overwriting)
+            // Create new note
             note = Note(context: viewContext)
-            note.id = shouldOverwriteExisting ? noteId : UUID()
+            note.id = noteId  // Use the imported note's ID
             note.createdAt = createdAt
         }
         
@@ -1193,7 +1200,7 @@ struct ContentView: View {
         }
         note.tags = NSSet(array: tagEntities)
         
-        // Create search index
+        // Create or update search index
         let indexPayload = IndexPayload(
             id: note.id!,
             title: title,
@@ -1204,12 +1211,27 @@ struct ContentView: View {
             pinned: pinned
         )
         
-        let searchIndex = SearchIndex(context: viewContext)
-        searchIndex.id = note.id
+        // Check if SearchIndex already exists for this note
+        let searchIndexRequest: NSFetchRequest<SearchIndex> = SearchIndex.fetchRequest()
+        searchIndexRequest.predicate = NSPredicate(format: "id == %@", note.id! as CVarArg)
+        
+        let searchIndex: SearchIndex
+        if let existingSearchIndex = try viewContext.fetch(searchIndexRequest).first {
+            // Update existing SearchIndex
+            searchIndex = existingSearchIndex
+            logger.debug("Updating existing SearchIndex for note \(note.id?.uuidString ?? "unknown")")
+        } else {
+            // Create new SearchIndex
+            searchIndex = SearchIndex(context: viewContext)
+            searchIndex.id = note.id
+            logger.debug("Creating new SearchIndex for note \(note.id?.uuidString ?? "unknown")")
+        }
+        
         let encryptedIndexData = try CryptoHelper.encrypt(indexPayload, key: encryptionKey)
         searchIndex.encryptedIndexData = encryptedIndexData
         
-        // TODO: Handle attachments if present
+        // Import attachments if present
+        // Note: For overwritten notes, existing attachments are already cleaned up above
         let attachmentsDir = contentDir.appendingPathComponent("attachments")
         if FileManager.default.fileExists(atPath: attachmentsDir.path) {
             try await importAttachments(from: attachmentsDir, to: note)

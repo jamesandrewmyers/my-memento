@@ -17,6 +17,11 @@
         <attribute name="isPinned" optional="YES" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
         <relationship name="attachments" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="Attachment" inverseName="note" inverseEntity="Attachment"/>
         <relationship name="tags" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="Tag" inverseName="notes" inverseEntity="Tag"/>
+        <uniquenessConstraints>
+            <uniquenessConstraint>
+                <constraint value="id"/>
+            </uniquenessConstraint>
+        </uniquenessConstraints>
     </entity>
     <entity name="SearchIndex" representedClassName="SearchIndex" syncable="YES" codeGenerationType="class">
         <attribute name="id" attributeType="UUID" usesScalarValueType="NO"/>

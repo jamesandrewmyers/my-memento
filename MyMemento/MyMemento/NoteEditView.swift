@@ -431,9 +431,7 @@ struct NoteEditView: View {
                 DispatchQueue.main.async {
                     do {
                         // Ensure note has an ID
-                        if noteToSave.id == nil {
-                            noteToSave.id = UUID()
-                        }
+                        NoteIDManager.ensureNoteHasID(noteToSave)
                         
                         // Store encrypted data
                         noteToSave.encryptedData = encryptedNoteData
@@ -486,6 +484,23 @@ struct NoteEditView: View {
                         self.dismiss()
                         
                     } catch {
+                        // Try to handle unique constraint violations
+                        if NoteIDManager.handleSaveError(error, in: self.viewContext, retryAction: {
+                            try self.viewContext.save()
+                            
+                            // Refresh the index to reflect tag changes
+                            self.noteIndexViewModel.refreshIndex(from: self.viewContext)
+                            
+                            // Upload notes for sync
+                            SyncService.shared.upload(notes: Array(self.allNotes))
+                            
+                            self.dismiss()
+                        }) {
+                            // Constraint violation was handled successfully
+                            return
+                        }
+                        
+                        // If constraint violation handling failed or it's a different error
                         let nsError = error as NSError
                         print("=== CORE DATA SAVE ERROR ===")
                         print("Error: \(nsError)")

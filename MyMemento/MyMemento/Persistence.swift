@@ -169,7 +169,7 @@ struct PersistenceController {
             
             for (index, noteData) in exampleNotes.enumerated() {
                 let note = Note(context: context)
-                note.id = UUID()
+                note.id = NoteIDManager.generateNoteID()
                 
                 let now = Date().addingTimeInterval(-Double(index * 3600)) // Stagger creation times by 1 hour each
                 

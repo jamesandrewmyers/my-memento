@@ -153,7 +153,7 @@ struct TagBrowserView: View {
                 Text(message)
             }
         }
-        .alert("Error", isPresented: $errorManager.showError) {
+        .alert(errorManager.dialogType == .error ? "Error" : "Success", isPresented: $errorManager.showError) {
             Button("OK") { }
         } message: { Text(errorManager.errorMessage) }
     }

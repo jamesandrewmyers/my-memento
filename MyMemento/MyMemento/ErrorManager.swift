@@ -10,11 +10,17 @@ import SwiftUI
 import CoreData
 import OSLog
 
+enum DialogType {
+    case error
+    case success
+}
+
 class ErrorManager: ObservableObject {
     static let shared = ErrorManager()
     
     @Published var showError = false
     @Published var errorMessage = ""
+    @Published var dialogType: DialogType = .error
     
     private let logger = Logger(subsystem: "app.jam.ios.MyMemento", category: "ErrorManager")
     
@@ -29,6 +35,21 @@ class ErrorManager: ObservableObject {
         // Update UI state
         DispatchQueue.main.async {
             self.errorMessage = errorDescription
+            self.dialogType = .error
+            self.showError = true
+        }
+    }
+    
+    func handleSuccess(_ message: String, context: String = "") {
+        let successMessage = "\(context.isEmpty ? "" : "\(context): ")\(message)"
+        
+        // Log the success
+        logger.info("\(successMessage)")
+        
+        // Update UI state
+        DispatchQueue.main.async {
+            self.errorMessage = successMessage
+            self.dialogType = .success
             self.showError = true
         }
     }
@@ -44,6 +65,7 @@ class ErrorManager: ObservableObject {
         
         DispatchQueue.main.async {
             self.errorMessage = userMessage
+            self.dialogType = .error
             self.showError = true
         }
     }

@@ -188,7 +188,7 @@ struct ContentView: View {
             } message: {
                 Text("How should imported notes be handled?\n\nCreate New Notes: All notes get new IDs\nOverwrite Existing: Notes with matching IDs will be replaced")
             }
-            .alert("Error", isPresented: $errorManager.showError) {
+            .alert(errorManager.dialogType == .error ? "Error" : "Import Successful!", isPresented: $errorManager.showError) {
                 Button("OK") { }
             } message: {
                 Text(errorManager.errorMessage)
@@ -924,10 +924,7 @@ struct ContentView: View {
             self.selectedImportURL = nil
             
             // Show success alert
-            self.errorManager.handleError(
-                NSError(domain: "ImportSuccess", code: 0, userInfo: [NSLocalizedDescriptionKey: message]), 
-                context: "Import completed successfully"
-            )
+            self.errorManager.handleSuccess(message, context: "Import completed successfully")
         }
     }
     

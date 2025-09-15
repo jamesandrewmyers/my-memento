@@ -334,10 +334,14 @@ struct NoteEditView: View {
                 // Fallback to legacy unencrypted fields
                 title = fetchedNote.title ?? ""
                 tags = tagsToString(fetchedNote.tags)
-                noteBody = fetchedNote.richText ?? NSAttributedString()
+                if let textNote = fetchedNote as? TextNote {
+                    noteBody = textNote.richText ?? NSAttributedString()
+                } else {
+                    noteBody = NSAttributedString()
+                }
             } else {
                 // Create new Note if it doesn't exist (for new notes from addNote)
-                let newNote = Note(context: viewContext)
+                let newNote = TextNote(context: viewContext)
                 newNote.id = indexPayload.id
                 newNote.createdAt = indexPayload.createdAt
                 newNote.isPinned = indexPayload.pinned

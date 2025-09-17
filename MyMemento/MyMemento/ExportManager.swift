@@ -124,8 +124,15 @@ class ExportManager {
     
     private func gatherNoteData(note: Note, contentDir: URL) async throws -> (htmlContent: String, notePayload: NotePayload) {
         // Decrypt the note payload
+        print("Export Debug: Note ID: \(note.id?.uuidString ?? "nil")")
+        print("Export Debug: Note type: \(type(of: note))")
+        print("Export Debug: Note title: \(note.title ?? "nil")")
+        print("Export Debug: Note createdAt: \(note.createdAt?.description ?? "nil")")
+        print("Export Debug: Note encryptedData: \(note.encryptedData?.count ?? 0) bytes")
+        
         guard let encryptedData = note.encryptedData else {
-            ErrorManager.shared.handleError(ExportError.encryptedDataMissing, context: "Note missing encrypted data")
+            print("Export Debug: WARNING - Note missing encryptedData, skipping note \(note.id?.uuidString ?? "unknown")")
+            // Skip notes without encrypted data instead of failing the entire export
             throw ExportError.encryptedDataMissing
         }
         

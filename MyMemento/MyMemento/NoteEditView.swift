@@ -470,9 +470,12 @@ struct NoteEditView: View {
                         
                         // Persist checklist items if applicable
                         if let checklistNote = noteToSave as? ChecklistNote {
+                            // Persist checklist items; content lives in encrypted payload as well
                             checklistNote.items = encodeChecklistItems(checklistItems)
-                        } else if let textNote = noteToSave as? TextNote {
-                            textNote.richText = currentNoteBody
+                        } else if noteToSave is TextNote {
+                            // Avoid writing transformable NSAttributedString to Core Data to prevent
+                            // NSSecureUnarchiveFromData transformer errors. Text content is persisted
+                            // in encryptedData and surfaced via the search index.
                         }
                         
                         // Find or create matching SearchIndex entity

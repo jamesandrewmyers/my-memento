@@ -31,6 +31,7 @@ struct NoteEditView: View {
     @State private var title: String = ""
     @State private var tags: String = ""
     @State private var noteBody: NSAttributedString = NSAttributedString()
+    @State private var checklistItems: [ChecklistItem] = []
     @State private var editorCoordinator: RichTextEditor.Coordinator?
     @State private var isBold = false
     @State private var isItalic = false
@@ -69,23 +70,27 @@ struct NoteEditView: View {
             }
             
             Section(header: contentHeader) {
-                if #available(iOS 15.0, *) {
-                    RichTextEditorWrapper(
-                        attributedText: $noteBody,
-                        coordinator: $editorCoordinator,
-                        isBold: $isBold,
-                        isItalic: $isItalic,
-                        isUnderlined: $isUnderlined,
-                        isStrikethrough: $isStrikethrough,
-                        isBulletList: $isBulletList,
-                        isNumberedList: $isNumberedList,
-                        isH1: $isH1,
-                        isH2: $isH2,
-                        isH3: $isH3
-                    )
-                    .frame(minHeight: 200)
+                if note is ChecklistNote {
+                    ChecklistEditor(items: $checklistItems)
                 } else {
-                    Text("Rich text editor requires iOS 15.0+")
+                    if #available(iOS 15.0, *) {
+                        RichTextEditorWrapper(
+                            attributedText: $noteBody,
+                            coordinator: $editorCoordinator,
+                            isBold: $isBold,
+                            isItalic: $isItalic,
+                            isUnderlined: $isUnderlined,
+                            isStrikethrough: $isStrikethrough,
+                            isBulletList: $isBulletList,
+                            isNumberedList: $isNumberedList,
+                            isH1: $isH1,
+                            isH2: $isH2,
+                            isH3: $isH3
+                        )
+                        .frame(minHeight: 200)
+                    } else {
+                        Text("Rich text editor requires iOS 15.0+")
+                    }
                 }
             }
 
@@ -324,7 +329,13 @@ struct NoteEditView: View {
                         
                         title = decryptedPayload.title
                         tags = decryptedPayload.tags.joined(separator: ", ")
-                        noteBody = decryptedPayload.body.attributedString
+                        if let checklistNote = fetchedNote as? ChecklistNote {
+                            // Decrypted payload is only used for title/tags/timestamps; checklist items live in entity
+                            noteBody = NSAttributedString()
+                            checklistItems = decodeChecklistItems(from: checklistNote)
+                        } else {
+                            noteBody = decryptedPayload.body.attributedString
+                        }
                         return
                     } catch {
                         print("Failed to decrypt note data, falling back to legacy fields: \(error)")
@@ -336,6 +347,9 @@ struct NoteEditView: View {
                 tags = tagsToString(fetchedNote.tags)
                 if let textNote = fetchedNote as? TextNote {
                     noteBody = textNote.richText ?? NSAttributedString()
+                } else if let checklistNote = fetchedNote as? ChecklistNote {
+                    checklistItems = decodeChecklistItems(from: checklistNote)
+                    noteBody = NSAttributedString()
                 } else {
                     noteBody = NSAttributedString()
                 }
@@ -401,6 +415,7 @@ struct NoteEditView: View {
         let currentTitle = title
         let currentTags = tags
         let currentNoteBody = noteBody
+        let currentChecklist = checklistItems
         guard let noteToSave = note else { return }
         
         // Perform save operation completely async
@@ -415,10 +430,22 @@ struct NoteEditView: View {
                 // Create current timestamp for updates
                 let now = Date()
                 
+                // Prepare content string based on note type
+                let contentForEncryption: NSAttributedString = {
+                    if let _ = noteToSave as? ChecklistNote {
+                        let text = currentChecklist
+                            .map { ($0.isChecked ? "[x] " : "[ ] ") + $0.text }
+                            .joined(separator: "\n")
+                        return NSAttributedString(string: text)
+                    } else {
+                        return currentNoteBody
+                    }
+                }()
+                
                 // Build NotePayload from captured state first (off main thread)
                 let notePayload = NotePayload(
                     title: currentTitle,
-                    body: NSAttributedStringWrapper(currentNoteBody),
+                    body: NSAttributedStringWrapper(contentForEncryption),
                     tags: tagNames,
                     createdAt: noteToSave.createdAt ?? now, // Preserve original creation date
                     updatedAt: now,
@@ -429,7 +456,8 @@ struct NoteEditView: View {
                 let encryptedNoteData = try CryptoHelper.encrypt(notePayload, key: encryptionKey)
                 
                 // Build IndexPayload for search
-                let summary = currentNoteBody.string.prefix(100).trimmingCharacters(in: .whitespacesAndNewlines)
+                let summaryBase = contentForEncryption.string
+                let summary = summaryBase.prefix(100).trimmingCharacters(in: .whitespacesAndNewlines)
                 
                 // Perform Core Data operations on main queue
                 DispatchQueue.main.async {
@@ -439,6 +467,13 @@ struct NoteEditView: View {
                         
                         // Store encrypted data
                         noteToSave.encryptedData = encryptedNoteData
+                        
+                        // Persist checklist items if applicable
+                        if let checklistNote = noteToSave as? ChecklistNote {
+                            checklistNote.items = encodeChecklistItems(checklistItems)
+                        } else if let textNote = noteToSave as? TextNote {
+                            textNote.richText = currentNoteBody
+                        }
                         
                         // Find or create matching SearchIndex entity
                         let searchIndexRequest: NSFetchRequest<SearchIndex> = SearchIndex.fetchRequest()
@@ -528,6 +563,41 @@ struct NoteEditView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Checklist Models & Helpers
+    struct ChecklistItem: Identifiable, Equatable {
+        let id: UUID
+        var text: String
+        var isChecked: Bool
+        
+        init(id: UUID = UUID(), text: String, isChecked: Bool = false) {
+            self.id = id
+            self.text = text
+            self.isChecked = isChecked
+        }
+    }
+    
+    private func decodeChecklistItems(from note: ChecklistNote) -> [ChecklistItem] {
+        guard let array = note.items as? [NSDictionary] else { return [] }
+        return array.compactMap { dict in
+            let text = (dict["text"] as? String) ?? ""
+            let isChecked = (dict["checked"] as? Bool) ?? false
+            let idString = dict["id"] as? String
+            let id = idString.flatMap(UUID.init(uuidString:)) ?? UUID()
+            return ChecklistItem(id: id, text: text, isChecked: isChecked)
+        }
+    }
+    
+    private func encodeChecklistItems(_ items: [ChecklistItem]) -> NSArray {
+        let mapped: [NSDictionary] = items.map { item in
+            [
+                "id": item.id.uuidString,
+                "text": item.text,
+                "checked": item.isChecked
+            ] as NSDictionary
+        }
+        return mapped as NSArray
     }
     
     private func togglePin() {
@@ -1533,7 +1603,9 @@ extension NoteEditView {
     private var contentHeader: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Content")
-            formattingBar
+            if !(note is ChecklistNote) {
+                formattingBar
+            }
         }
     }
 
@@ -1820,5 +1892,83 @@ struct RichTextEditorWrapper: UIViewRepresentable {
         if !currentText.isEqual(to: attributedText) {
             uiView.setAttributedText(attributedText)
         }
+    }
+}
+
+// MARK: - ChecklistEditor
+private struct ChecklistEditor: View {
+    @Binding var items: [NoteEditView.ChecklistItem]
+    @State private var newItemText: String = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if items.isEmpty {
+                Text("No items yet. Add one below.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.vertical, 8)
+            } else {
+                // Use LazyVStack instead of List for better control over spacing
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach($items) { $item in
+                        HStack(spacing: 12) {
+                            Button(action: { item.isChecked.toggle() }) {
+                                Image(systemName: item.isChecked ? "checkmark.circle.fill" : "circle")
+                                    .foregroundColor(item.isChecked ? .green : .gray)
+                                    .font(.system(size: 20))
+                            }
+                            .buttonStyle(.plain)
+
+                            TextField("List item", text: $item.text)
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                                .font(.body)
+                        }
+                        .padding(.vertical, 6)
+                        .background(Color.clear)
+                        .contextMenu {
+                            Button("Delete", role: .destructive) {
+                                if let index = items.firstIndex(where: { $0.id == item.id }) {
+                                    items.remove(at: index)
+                                }
+                            }
+                        }
+                    }
+                }
+                .background(Color.clear)
+            }
+            
+            // Add new item section
+            VStack(alignment: .leading, spacing: 8) {
+                Divider()
+                    .padding(.vertical, 4)
+                
+                HStack(spacing: 12) {
+                    Image(systemName: "plus.circle")
+                        .foregroundColor(.gray)
+                        .font(.system(size: 20))
+                    
+                    TextField("Add new item", text: $newItemText)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .font(.body)
+                        .onSubmit {
+                            addNewItem()
+                        }
+                    
+                    Button("Add") {
+                        addNewItem()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(newItemText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+        .frame(minHeight: 200)
+    }
+    
+    private func addNewItem() {
+        let text = newItemText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        items.append(NoteEditView.ChecklistItem(text: text))
+        newItemText = ""
     }
 }

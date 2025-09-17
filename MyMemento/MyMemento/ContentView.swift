@@ -47,6 +47,7 @@ struct ContentView: View {
     @State private var importProgress = 0.0
     @State private var importStatusMessage = ""
     @State private var shouldOverwriteExisting = false
+    @State private var showNoteTypeSelection = false
     @State private var selectedImportURL: URL?
 
     @State private var exportedFileURL: URL?
@@ -144,6 +145,11 @@ struct ContentView: View {
             }
             .sheet(isPresented: $showTagList) {
                 TagBrowserView()
+            }
+            .sheet(isPresented: $showNoteTypeSelection) {
+                NoteTypeSelectionView(isPresented: $showNoteTypeSelection) { noteType in
+                    createNote(of: noteType)
+                }
             }
             .alert("Export Notes", isPresented: $showExportDialog) {
                 Button("OK") { exportAllNotesEncrypted() }
@@ -409,10 +415,36 @@ struct ContentView: View {
     }
 
     private func addNote() {
+        showNoteTypeSelection = true
+    }
+
+    private func createNote(of type: NoteType) {
         let noteId = NoteIDManager.generateNoteID()
         let now = Date()
         
-        // Create a temporary IndexPayload for the new note
+        // Create the actual Note entity based on type
+        let note: Note
+        switch type {
+        case .text:
+            note = TextNote(context: viewContext)
+        case .checklist:
+            note = ChecklistNote(context: viewContext)
+        }
+        
+        note.id = noteId
+        note.createdAt = now
+        note.isPinned = false
+        
+        // Save the new note to Core Data
+        do {
+            try viewContext.save()
+        } catch {
+            let nsError = error as NSError
+            errorManager.handleCoreDataError(nsError, context: "Failed to create new note")
+            return
+        }
+        
+        // Create a temporary IndexPayload for navigation
         let newIndexPayload = IndexPayload(
             id: noteId,
             title: "New Note",
@@ -1259,6 +1291,76 @@ struct ContentView: View {
                 )
             }
             // Skip unknown file types
+        }
+    }
+}
+
+// MARK: - Note Type Selection
+
+enum NoteType: String, CaseIterable {
+    case text = "Text Note"
+    case checklist = "Checklist"
+    
+    var systemImage: String {
+        switch self {
+        case .text:
+            return "doc.text"
+        case .checklist:
+            return "checklist"
+        }
+    }
+    
+    var description: String {
+        switch self {
+        case .text:
+            return "Create a rich text note with formatting"
+        case .checklist:
+            return "Create a checklist with items to check off"
+        }
+    }
+}
+
+struct NoteTypeSelectionView: View {
+    @Binding var isPresented: Bool
+    let onSelection: (NoteType) -> Void
+    
+    var body: some View {
+        NavigationView {
+            List(NoteType.allCases, id: \.self) { noteType in
+                Button(action: {
+                    onSelection(noteType)
+                    isPresented = false
+                }) {
+                    HStack(spacing: 16) {
+                        Image(systemName: noteType.systemImage)
+                            .foregroundColor(.blue)
+                            .frame(width: 24, height: 24)
+                        
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(noteType.rawValue)
+                                .font(.headline)
+                                .foregroundColor(.primary)
+                            
+                            Text(noteType.description)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        Spacer()
+                    }
+                    .padding(.vertical, 8)
+                }
+                .buttonStyle(.plain)
+            }
+            .navigationTitle("Choose Note Type")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Cancel") {
+                        isPresented = false
+                    }
+                }
+            }
         }
     }
 }

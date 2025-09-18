@@ -1983,8 +1983,10 @@ private struct ChecklistEditor: View {
                     .disabled(newItemText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
+            
+            Spacer()
         }
-        .frame(minHeight: 200)
+        .frame(minHeight: 200, alignment: .top)
     }
     
     private func addNewItem() {

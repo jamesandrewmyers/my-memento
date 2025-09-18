@@ -802,16 +802,31 @@ class ExportManager {
             let keyURL = tempDir.appendingPathComponent("key.enc")
             try wrappedKey.write(to: keyURL)
             
-            // Create comprehensive manifest.json with all required fields
-            let tags = note.tags?.compactMap { ($0 as? Tag)?.name } ?? []
+            // Determine note type
+            let noteType: String
+            if note is TextNote {
+                noteType = "text"
+            } else if note is ChecklistNote {
+                noteType = "checklist"
+            } else {
+                noteType = "text" // Default fallback for older notes
+            }
+            
+            // Create comprehensive manifest.json with all required fields including note type
+            let coreDataTags = note.tags?.compactMap { ($0 as? Tag)?.name } ?? []
+            
+            // Use Core Data tags if available, otherwise fall back to encrypted payload tags
+            let tagsToUse = !coreDataTags.isEmpty ? coreDataTags : noteData.tags
+            
             let manifest = [
                 "version": "1.0",
                 "noteId": note.id?.uuidString ?? "",
                 "title": noteData.title,
-                "tags": tags,
+                "tags": tagsToUse,
                 "createdAt": ISO8601DateFormatter().string(from: noteData.createdAt),
                 "updatedAt": ISO8601DateFormatter().string(from: noteData.updatedAt),
                 "pinned": noteData.pinned,
+                "noteType": noteType,
                 "crypto": [
                     "cipher": "AES-256-GCM",
                     "keyWrap": "RSA-OAEP-SHA256",

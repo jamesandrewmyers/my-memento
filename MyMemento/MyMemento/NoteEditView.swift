@@ -512,6 +512,25 @@ struct NoteEditView: View {
                         print("Encrypted index size: \(encryptedIndexData.count) bytes")
                         print("==================")
                         
+                        // Update Core Data tag relationships
+                        var tagEntities: [Tag] = []
+                        for tagName in tagNames {
+                            let request: NSFetchRequest<Tag> = Tag.fetchRequest()
+                            request.predicate = NSPredicate(format: "name == %@", tagName)
+                            
+                            if let existingTag = try self.viewContext.fetch(request).first {
+                                tagEntities.append(existingTag)
+                            } else {
+                                let newTag = Tag(context: self.viewContext)
+                                newTag.id = UUID()
+                                newTag.name = tagName
+                                newTag.createdAt = Date()
+                                tagEntities.append(newTag)
+                            }
+                        }
+                        
+                        noteToSave.tags = NSSet(array: tagEntities)
+                        
                         // Save the Core Data context (directly on main queue)
                         try self.viewContext.save()
                         

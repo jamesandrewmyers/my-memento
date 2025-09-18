@@ -1100,7 +1100,8 @@ struct ContentView: View {
             throw NSError(domain: "ImportError", code: 5, userInfo: [NSLocalizedDescriptionKey: "Invalid manifest format"])
         }
         
-        // Extract note metadata
+        
+        // Extract note metadata including noteType (with backward compatibility)
         guard let noteIdString = manifest["noteId"] as? String,
               let noteId = UUID(uuidString: noteIdString),
               let title = manifest["title"] as? String,
@@ -1113,6 +1114,9 @@ struct ContentView: View {
               let tagString = crypto["tag"] as? String else {
             throw NSError(domain: "ImportError", code: 6, userInfo: [NSLocalizedDescriptionKey: "Invalid manifest data"])
         }
+        
+        // Extract note type with backward compatibility
+        let noteTypeString = manifest["noteType"] as? String ?? "text" // Default to text for older exports
         
         // Parse dates
         let iso8601Formatter = ISO8601DateFormatter()
@@ -1187,8 +1191,16 @@ struct ContentView: View {
                 }
             }
         } else {
-            // Create new note
-            note = Note(context: viewContext)
+            // Create new note with proper type based on manifest
+            switch noteTypeString {
+            case "text":
+                note = TextNote(context: viewContext)
+            case "checklist":
+                note = ChecklistNote(context: viewContext)
+            default:
+                // Default to TextNote for unknown types
+                note = TextNote(context: viewContext)
+            }
             note.id = noteId  // Use the imported note's ID
             note.createdAt = createdAt
         }
@@ -1227,6 +1239,7 @@ struct ContentView: View {
                 tagEntities.append(newTag)
             }
         }
+        
         note.tags = NSSet(array: tagEntities)
         
         // Create or update search index

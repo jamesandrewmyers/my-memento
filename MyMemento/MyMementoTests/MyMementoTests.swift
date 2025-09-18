@@ -150,8 +150,8 @@ struct MyMementoTests {
         // Encrypt the payload
         let encryptedData = try CryptoHelper.encrypt(notePayload, key: encryptionKey)
         
-        // Create Core Data Note entity
-        let note = Note(context: context)
+        // Create Core Data TextNote entity (Note is abstract)
+        let note = TextNote(context: context)
         note.id = UUID()
         note.encryptedData = encryptedData
         

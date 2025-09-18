@@ -1201,7 +1201,15 @@ struct ContentView: View {
                 // Default to TextNote for unknown types
                 note = TextNote(context: viewContext)
             }
-            note.id = noteId  // Use the imported note's ID
+            
+            // Generate new ID to avoid uniqueness constraint violations when creating new notes
+            if existingNote != nil && !shouldOverwriteExisting {
+                // Note exists but we're not overwriting, so generate a new ID
+                note.id = NoteIDManager.generateNoteID()
+            } else {
+                // Use the imported note's ID (either no existing note or we would overwrite)
+                note.id = noteId
+            }
             note.createdAt = createdAt
         }
         
@@ -1253,7 +1261,7 @@ struct ContentView: View {
             pinned: pinned
         )
         
-        // Check if SearchIndex already exists for this note
+        // Check if SearchIndex already exists for this note ID
         let searchIndexRequest: NSFetchRequest<SearchIndex> = SearchIndex.fetchRequest()
         searchIndexRequest.predicate = NSPredicate(format: "id == %@", note.id! as CVarArg)
         
@@ -1263,7 +1271,7 @@ struct ContentView: View {
             searchIndex = existingSearchIndex
             logger.debug("Updating existing SearchIndex for note \(note.id?.uuidString ?? "unknown")")
         } else {
-            // Create new SearchIndex
+            // Create new SearchIndex with the note's ID (which may be newly generated)
             searchIndex = SearchIndex(context: viewContext)
             searchIndex.id = note.id
             logger.debug("Creating new SearchIndex for note \(note.id?.uuidString ?? "unknown")")
@@ -1271,6 +1279,17 @@ struct ContentView: View {
         
         let encryptedIndexData = try CryptoHelper.encrypt(indexPayload, key: encryptionKey)
         searchIndex.encryptedIndexData = encryptedIndexData
+        
+        // Import checklist items if this is a ChecklistNote and checklist.json exists
+        if let checklistNote = note as? ChecklistNote {
+            let checklistURL = contentDir.appendingPathComponent("checklist.json")
+            if FileManager.default.fileExists(atPath: checklistURL.path) {
+                let checklistData = try Data(contentsOf: checklistURL)
+                if let checklistItems = try JSONSerialization.jsonObject(with: checklistData) as? [NSDictionary] {
+                    checklistNote.items = checklistItems as NSArray
+                }
+            }
+        }
         
         // Import attachments if present
         // Note: For overwritten notes, existing attachments are already cleaned up above

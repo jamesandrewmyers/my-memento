@@ -166,6 +166,13 @@ class ExportManager {
         let bodyURL = contentDir.appendingPathComponent("body.html")
         try htmlContent.write(to: bodyURL, atomically: true, encoding: .utf8)
         
+        // Handle checklist items if this is a ChecklistNote
+        if let checklistNote = note as? ChecklistNote, let items = checklistNote.items as? [NSDictionary] {
+            let checklistData = try JSONSerialization.data(withJSONObject: items, options: .prettyPrinted)
+            let checklistURL = contentDir.appendingPathComponent("checklist.json")
+            try checklistData.write(to: checklistURL)
+        }
+        
         // Handle attachments if they exist
         if let attachments = note.attachments, attachments.count > 0 {
             let attachmentsDir = contentDir.appendingPathComponent("attachments")

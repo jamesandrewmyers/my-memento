@@ -1921,6 +1921,11 @@ struct RichTextEditorWrapper: UIViewRepresentable {
 private struct ChecklistEditor: View {
     @Binding var items: [NoteEditView.ChecklistItem]
     @State private var newItemText: String = ""
+    
+    // Computed property to sort items for display: unchecked first, then checked
+    private var sortedItems: [NoteEditView.ChecklistItem] {
+        items.sorted { !$0.isChecked && $1.isChecked }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -1932,25 +1937,28 @@ private struct ChecklistEditor: View {
             } else {
                 // Use LazyVStack instead of List for better control over spacing
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach($items) { $item in
-                        HStack(spacing: 12) {
-                            Button(action: { item.isChecked.toggle() }) {
-                                Image(systemName: item.isChecked ? "checkmark.circle.fill" : "circle")
-                                    .foregroundColor(item.isChecked ? .green : .gray)
-                                    .font(.system(size: 20))
-                            }
-                            .buttonStyle(.plain)
+                    ForEach(sortedItems.indices, id: \.self) { sortedIndex in
+                        let sortedItem = sortedItems[sortedIndex]
+                        if let originalIndex = items.firstIndex(where: { $0.id == sortedItem.id }) {
+                            HStack(spacing: 12) {
+                                Button(action: { 
+                                    items[originalIndex].isChecked.toggle()
+                                }) {
+                                    Image(systemName: items[originalIndex].isChecked ? "checkmark.circle.fill" : "circle")
+                                        .foregroundColor(items[originalIndex].isChecked ? .green : .gray)
+                                        .font(.system(size: 20))
+                                }
+                                .buttonStyle(.plain)
 
-                            TextField("List item", text: $item.text)
-                                .textFieldStyle(RoundedBorderTextFieldStyle())
-                                .font(.body)
-                        }
-                        .padding(.vertical, 6)
-                        .background(Color.clear)
-                        .contextMenu {
-                            Button("Delete", role: .destructive) {
-                                if let index = items.firstIndex(where: { $0.id == item.id }) {
-                                    items.remove(at: index)
+                                TextField("List item", text: $items[originalIndex].text)
+                                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                                    .font(.body)
+                            }
+                            .padding(.vertical, 6)
+                            .background(Color.clear)
+                            .contextMenu {
+                                Button("Delete", role: .destructive) {
+                                    items.remove(at: originalIndex)
                                 }
                             }
                         }

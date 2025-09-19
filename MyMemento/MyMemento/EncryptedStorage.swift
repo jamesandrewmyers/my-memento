@@ -1,4 +1,6 @@
 import Foundation
+import CoreLocation
+import MapKit
 
 // MARK: - NSAttributedString Codable Wrapper
 struct NSAttributedStringWrapper: Codable {
@@ -61,4 +63,44 @@ struct IndexPayload: Codable, Hashable {
     var createdAt: Date
     var updatedAt: Date
     var pinned: Bool
+}
+
+// MARK: - Location Storage Payloads
+struct LocationPlacemarkPayload: Codable {
+    var thoroughfare: String?
+    var subThoroughfare: String?
+    var locality: String?
+    var subLocality: String?
+    var administrativeArea: String?
+    var subAdministrativeArea: String?
+    var postalCode: String?
+    var country: String?
+    var countryCode: String?
+    var timeZone: String?
+    
+    init(from placemark: MKPlacemark) {
+        self.thoroughfare = placemark.thoroughfare
+        self.subThoroughfare = placemark.subThoroughfare
+        self.locality = placemark.locality
+        self.subLocality = placemark.subLocality
+        self.administrativeArea = placemark.administrativeArea
+        self.subAdministrativeArea = placemark.subAdministrativeArea
+        self.postalCode = placemark.postalCode
+        self.country = placemark.country
+        self.countryCode = placemark.countryCode
+        self.timeZone = placemark.timeZone?.identifier
+    }
+    
+    init(from placemark: CLPlacemark) {
+        self.thoroughfare = placemark.thoroughfare
+        self.subThoroughfare = placemark.subThoroughfare
+        self.locality = placemark.locality
+        self.subLocality = placemark.subLocality
+        self.administrativeArea = placemark.administrativeArea
+        self.subAdministrativeArea = placemark.subAdministrativeArea
+        self.postalCode = placemark.postalCode
+        self.country = placemark.country
+        self.countryCode = placemark.isoCountryCode
+        self.timeZone = placemark.timeZone?.identifier
+    }
 }

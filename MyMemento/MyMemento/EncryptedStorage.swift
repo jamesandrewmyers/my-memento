@@ -78,6 +78,19 @@ struct LocationPlacemarkPayload: Codable {
     var countryCode: String?
     var timeZone: String?
     
+    init(thoroughfare: String? = nil, subThoroughfare: String? = nil, locality: String? = nil, subLocality: String? = nil, administrativeArea: String? = nil, subAdministrativeArea: String? = nil, postalCode: String? = nil, country: String? = nil, countryCode: String? = nil, timeZone: String? = nil) {
+        self.thoroughfare = thoroughfare
+        self.subThoroughfare = subThoroughfare
+        self.locality = locality
+        self.subLocality = subLocality
+        self.administrativeArea = administrativeArea
+        self.subAdministrativeArea = subAdministrativeArea
+        self.postalCode = postalCode
+        self.country = country
+        self.countryCode = countryCode
+        self.timeZone = timeZone
+    }
+    
     init(from placemark: MKPlacemark) {
         self.thoroughfare = placemark.thoroughfare
         self.subThoroughfare = placemark.subThoroughfare

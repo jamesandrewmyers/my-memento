@@ -10,6 +10,7 @@ import CoreData
 import OSLog
 import Foundation
 import UniformTypeIdentifiers
+import CoreLocation
 
 enum SortOption: String, CaseIterable {
     case createdAt = "Created"
@@ -1321,9 +1322,93 @@ struct ContentView: View {
                     from: attachmentFile,
                     context: viewContext
                 )
+            } else if fileExtension == "json" && attachmentFile.lastPathComponent.hasPrefix("location_") {
+                try await importLocationAttachment(from: attachmentFile, to: note)
             }
             // Skip unknown file types
         }
+    }
+    
+    private func importLocationAttachment(from jsonFile: URL, to note: Note) async throws {
+        // Read and parse the JSON file
+        let jsonData = try Data(contentsOf: jsonFile)
+        guard let locationData = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
+            throw NSError(domain: "ImportError", code: 11, userInfo: [NSLocalizedDescriptionKey: "Invalid location JSON format"])
+        }
+        
+        // Extract required location data
+        guard let locationIdString = locationData["id"] as? String,
+              let locationId = UUID(uuidString: locationIdString),
+              let name = locationData["name"] as? String,
+              let latitude = locationData["latitude"] as? Double,
+              let longitude = locationData["longitude"] as? Double else {
+            print("Import: Invalid location data in JSON file: \(jsonFile.lastPathComponent)")
+            return
+        }
+        
+        // Create or find existing location
+        let locationManager = LocationManager(context: viewContext, keyManager: KeyManager.shared)
+        
+        // Check if location already exists
+        let existingLocation = try locationManager.fetchLocation(by: locationId)
+        let location: Location
+        
+        if let existing = existingLocation {
+            // Use existing location
+            location = existing
+            print("Import: Using existing location: \(name)")
+        } else {
+            // Create new location
+            let coordinate = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+            let altitude = locationData["altitude"] as? Double
+            let horizontalAccuracy = locationData["horizontalAccuracy"] as? Double
+            let verticalAccuracy = locationData["verticalAccuracy"] as? Double
+            
+            // Create placemark data if available
+            var placemark: LocationPlacemarkPayload?
+            if let placemarkData = locationData["placemark"] as? [String: Any] {
+                placemark = LocationPlacemarkPayload(
+                    thoroughfare: placemarkData["thoroughfare"] as? String,
+                    subThoroughfare: placemarkData["subThoroughfare"] as? String,
+                    locality: placemarkData["locality"] as? String,
+                    subLocality: placemarkData["subLocality"] as? String,
+                    administrativeArea: placemarkData["administrativeArea"] as? String,
+                    subAdministrativeArea: placemarkData["subAdministrativeArea"] as? String,
+                    postalCode: placemarkData["postalCode"] as? String,
+                    country: placemarkData["country"] as? String,
+                    countryCode: placemarkData["countryCode"] as? String,
+                    timeZone: placemarkData["timeZone"] as? String
+                )
+            }
+            
+            location = try locationManager.saveLocation(
+                name: name,
+                coordinate: coordinate,
+                placemark: placemark,
+                altitude: altitude,
+                horizontalAccuracy: horizontalAccuracy,
+                verticalAccuracy: verticalAccuracy
+            )
+            
+            // Set the original ID and creation date if available
+            location.id = locationId
+            if let createdAtString = locationData["createdAt"] as? String,
+               let createdAt = ISO8601DateFormatter().date(from: createdAtString) {
+                location.createdAt = createdAt
+            }
+            
+            try viewContext.save()
+            print("Import: Created new location: \(name)")
+        }
+        
+        // Create location attachment
+        _ = try await AttachmentManager.shared.createLocationAttachment(
+            for: note,
+            from: location,
+            context: viewContext
+        )
+        
+        print("Import: Successfully imported location attachment: \(name)")
     }
 }
 

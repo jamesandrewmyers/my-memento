@@ -192,7 +192,13 @@ class ExportManager {
                 continue 
             }
             
-            // Get the attachment file URL
+            // Handle location attachments differently - they don't have files
+            if attachment.type?.lowercased() == "location" {
+                try await exportLocationAttachment(attachment, to: attachmentsDir, encryptionKey: encryptionKey)
+                continue
+            }
+            
+            // Get the attachment file URL for file-based attachments (video/audio)
             guard let attachmentURL = await AttachmentManager.shared.getFileURL(for: attachment) else {
                 let error = ExportError.attachmentNotFound
                 ErrorManager.shared.handleError(error, context: "Attachment URL not found: \(attachmentId)")
@@ -232,6 +238,70 @@ class ExportManager {
                 // Continue with other attachments rather than failing the entire export
                 continue
             }
+        }
+    }
+    
+    private func exportLocationAttachment(_ attachment: Attachment, to attachmentsDir: URL, encryptionKey: SymmetricKey) async throws {
+        guard let attachmentId = attachment.id,
+              let location = attachment.location else {
+            print("Export: Skipping location attachment - missing ID or location data")
+            return
+        }
+        
+        // Create location data structure for export
+        var locationData: [String: Any] = [
+            "id": location.id?.uuidString ?? "",
+            "name": location.name ?? "",
+            "latitude": location.latitude,
+            "longitude": location.longitude,
+            "createdAt": ISO8601DateFormatter().string(from: location.createdAt ?? Date())
+        ]
+        
+        // Add optional location properties if they exist
+        if location.altitude != 0 {
+            locationData["altitude"] = location.altitude
+        }
+        if location.horizontalAccuracy != 0 {
+            locationData["horizontalAccuracy"] = location.horizontalAccuracy
+        }
+        if location.verticalAccuracy != 0 {
+            locationData["verticalAccuracy"] = location.verticalAccuracy
+        }
+        
+        // Try to decrypt and include placemark data if available
+        if let encryptedPlacemarkData = location.encryptedPlacemarkData {
+            do {
+                let locationManager = LocationManager(context: PersistenceController.shared.container.viewContext, keyManager: KeyManager.shared)
+                if let placemark = try locationManager.decryptPlacemark(from: location) {
+                    var placemarkData: [String: Any] = [:]
+                    if let thoroughfare = placemark.thoroughfare { placemarkData["thoroughfare"] = thoroughfare }
+                    if let subThoroughfare = placemark.subThoroughfare { placemarkData["subThoroughfare"] = subThoroughfare }
+                    if let locality = placemark.locality { placemarkData["locality"] = locality }
+                    if let administrativeArea = placemark.administrativeArea { placemarkData["administrativeArea"] = administrativeArea }
+                    if let postalCode = placemark.postalCode { placemarkData["postalCode"] = postalCode }
+                    if let country = placemark.country { placemarkData["country"] = country }
+                    if let timeZone = placemark.timeZone { placemarkData["timeZone"] = timeZone }
+                    
+                    if !placemarkData.isEmpty {
+                        locationData["placemark"] = placemarkData
+                    }
+                }
+            } catch {
+                print("Export: Failed to decrypt placemark data for location \(attachmentId): \(error.localizedDescription)")
+                // Continue without placemark data
+            }
+        }
+        
+        // Convert to JSON and save
+        do {
+            let jsonData = try JSONSerialization.data(withJSONObject: locationData, options: [.prettyPrinted])
+            let filename = "location_\(attachmentId.uuidString).json"
+            let locationFileURL = attachmentsDir.appendingPathComponent(filename)
+            try jsonData.write(to: locationFileURL)
+            print("Export: Successfully exported location attachment \(attachmentId) to \(filename)")
+        } catch {
+            print("Export: Failed to export location attachment \(attachmentId): \(error.localizedDescription)")
+            throw error
         }
     }
     

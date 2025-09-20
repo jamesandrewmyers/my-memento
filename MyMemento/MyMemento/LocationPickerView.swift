@@ -13,6 +13,7 @@ struct LocationPickerView: View {
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var locationManager: LocationManager?
+    @State private var showingMapPicker = false
     
     var body: some View {
         NavigationView {
@@ -22,13 +23,47 @@ struct LocationPickerView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if locations.isEmpty {
                     VStack(spacing: 16) {
+                        // Find Location option
+                        Button(action: {
+                            showingMapPicker = true
+                        }) {
+                            HStack {
+                                Image(systemName: "map.fill")
+                                    .foregroundColor(.blue)
+                                    .font(.title2)
+                                    .frame(width: 40)
+                                
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Find Location")
+                                        .font(.headline)
+                                        .foregroundColor(.primary)
+                                    Text("Use map to select a new location")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                
+                                Spacer()
+                                
+                                Image(systemName: "chevron.right")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding()
+                            .background(Color(.systemGray6))
+                            .cornerRadius(8)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.horizontal)
+                        
+                        Spacer().frame(height: 20)
+                        
                         Image(systemName: "location.slash")
                             .font(.system(size: 60))
                             .foregroundColor(.secondary)
-                        Text("No Locations Found")
+                        Text("No Saved Locations")
                             .font(.title2)
                             .fontWeight(.medium)
-                        Text("Create locations in the app to attach them to notes.")
+                        Text("Use the Find Location option above or save locations elsewhere in the app to attach them to notes.")
                             .font(.body)
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
@@ -36,6 +71,36 @@ struct LocationPickerView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     List {
+                        // Find Location option at the top
+                        Button(action: {
+                            showingMapPicker = true
+                        }) {
+                            HStack {
+                                Image(systemName: "map.fill")
+                                    .foregroundColor(.blue)
+                                    .font(.title2)
+                                    .frame(width: 40)
+                                
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Find Location")
+                                        .font(.headline)
+                                        .foregroundColor(.primary)
+                                    Text("Use map to select a new location")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                
+                                Spacer()
+                                
+                                Image(systemName: "chevron.right")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.vertical, 8)
+                        }
+                        .buttonStyle(.plain)
+                        
+                        // Existing locations
                         ForEach(filteredLocations, id: \.id) { location in
                             LocationRow(location: location, locationManager: locationManager) {
                                 onLocationSelected(location)
@@ -66,6 +131,12 @@ struct LocationPickerView: View {
                 if let errorMessage = errorMessage {
                     Text(errorMessage)
                 }
+            }
+        }
+        .sheet(isPresented: $showingMapPicker) {
+            MapLocationPickerView(viewContext: viewContext) { selectedLocation in
+                onLocationSelected(selectedLocation)
+                dismiss()
             }
         }
         .onAppear {

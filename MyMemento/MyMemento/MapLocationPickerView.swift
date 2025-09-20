@@ -23,7 +23,8 @@ struct MapLocationPickerView: View {
     
     var body: some View {
         NavigationView {
-            VStack {
+            ScrollView {
+                VStack {
                 // Address Search Input
                 HStack {
                     TextField("Search for an address...", text: $addressSearchText)
@@ -43,7 +44,9 @@ struct MapLocationPickerView: View {
                     .disabled(addressSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSearching)
                 }
                 .padding(.horizontal)
-                .padding(.top, 8)
+                .padding(.vertical, 8)
+                .background(Color(.systemBackground))
+                .zIndex(1)
                 
                 // Map View with crosshair
                 ZStack {
@@ -119,7 +122,9 @@ struct MapLocationPickerView: View {
                     Spacer()
                 }
                 .padding()
+                }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Select Location")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

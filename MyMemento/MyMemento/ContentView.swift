@@ -27,16 +27,8 @@ struct ContentView: View {
     @Environment(\.managedObjectContext) private var viewContext
     @EnvironmentObject private var noteIndexViewModel: NoteIndexViewModel
     @StateObject private var errorManager = ErrorManager.shared
-    @State private var searchText = ""
-    @State private var filteredIndices: [IndexPayload] = []
-    @State private var isSearching = false
     @State private var isDeleteMode = false
     @State private var navigationPath = NavigationPath()
-    @State private var showTagSuggestions = false
-    @State private var tagSuggestions: [String] = []
-    @State private var justSelectedTag = false
-    @State private var lastSearchTextAfterSelection = ""
-    @State private var sortOption: SortOption = .createdAt
     @State private var showTagList = false
     @State private var showLocationManagement = false
     @State private var showExportDialog = false
@@ -58,75 +50,16 @@ struct ContentView: View {
 
 
     
-    private var displayedIndices: [IndexPayload] {
-        let baseIndices = isSearching ? filteredIndices : noteIndexViewModel.indexPayloads
-        
-        return baseIndices.sorted { index1, index2 in
-            switch sortOption {
-            case .pinned:
-                if index1.pinned != index2.pinned {
-                    return index1.pinned && !index2.pinned
-                }
-                // Secondary sort by creation date for pinned items
-                return index1.createdAt > index2.createdAt
-                
-            case .title:
-                // First sort by pinned status, then by title
-                if index1.pinned != index2.pinned {
-                    return index1.pinned && !index2.pinned
-                }
-                return index1.title.localizedCaseInsensitiveCompare(index2.title) == .orderedAscending
-                
-            case .updatedAt:
-                // First sort by pinned status, then by update date
-                if index1.pinned != index2.pinned {
-                    return index1.pinned && !index2.pinned
-                }
-                return index1.updatedAt > index2.updatedAt
-                
-            case .createdAt:
-                // First sort by pinned status, then by creation date
-                if index1.pinned != index2.pinned {
-                    return index1.pinned && !index2.pinned
-                }
-                return index1.createdAt > index2.createdAt
-            }
-        }
-    }
-    
-    private var allTags: [String] {
-        return TagManager.extractTagsFromIndex(noteIndexViewModel.indexPayloads)
-    }
-    
-    private func tagsToString(_ tags: [String]) -> String {
-        return tags.sorted().joined(separator: ", ")
-    }
 
     var body: some View {
         NavigationStack(path: $navigationPath) {
-            VStack {
-                SearchBarView(
-                    searchText: $searchText,
-                    showTagSuggestions: $showTagSuggestions,
-                    tagSuggestions: $tagSuggestions,
-                    onSearch: performSearch,
-                    onClear: clearSearch,
-                    onSelectTag: selectTag,
-                    onUpdateTagSuggestions: updateTagSuggestions
-                )
-
-                SortOptionsView(sortOption: $sortOption)
-
-                NoteListView(
-                    indices: displayedIndices,
-                    isDeleteMode: $isDeleteMode,
-                    onTogglePin: togglePinForIndex,
-                    onDelete: deleteNoteFromIndex,
-                    onDeleteIndices: deleteIndices,
-                    tagsToString: tagsToString
-                )
-                .navigationTitle("Notes")
-            }
+            NoteListWithFiltersView.full(
+                allIndices: noteIndexViewModel.indexPayloads,
+                navigationTitle: "Notes",
+                onTogglePin: togglePinForIndex,
+                onDelete: deleteNoteFromIndex,
+                onDeleteIndices: deleteIndices
+            )
             .navigationDestination(for: IndexPayload.self) { indexPayload in
                 NoteEditView(indexPayload: indexPayload)
                     .onDisappear {
@@ -228,48 +161,6 @@ struct ContentView: View {
         }
     }
     
-    private func clearSearch() {
-        searchText = ""
-        showTagSuggestions = false
-        tagSuggestions = []
-        justSelectedTag = false
-        lastSearchTextAfterSelection = ""
-        isSearching = false
-        filteredIndices = []
-    }
-    
-    private func performSearch() {
-        let trimmedSearchText = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmedSearchText.isEmpty {
-            isSearching = false
-            filteredIndices = []
-        } else {
-            isSearching = true
-            filteredIndices = noteIndexViewModel.indexPayloads.filter { indexPayload in
-                // Search in title
-                let titleContains = indexPayload.title.localizedCaseInsensitiveContains(trimmedSearchText)
-                
-                // Search in summary (body content)
-                let summaryContains = indexPayload.summary.localizedCaseInsensitiveContains(trimmedSearchText)
-                
-                // Search in tags - handle both #tag and plain tag search
-                var tagsContains = false
-                if trimmedSearchText.hasPrefix("#") {
-                    let tagQuery = String(trimmedSearchText.dropFirst())
-                    tagsContains = indexPayload.tags.contains { tag in
-                        tag.localizedCaseInsensitiveContains(tagQuery)
-                    }
-                } else {
-                    // Also search tags without # prefix
-                    tagsContains = indexPayload.tags.contains { tag in
-                        tag.localizedCaseInsensitiveContains(trimmedSearchText)
-                    }
-                }
-                
-                return titleContains || summaryContains || tagsContains
-            }
-        }
-    }
     
     private func togglePinForIndex(_ indexPayload: IndexPayload) {
         guard let note = fetchNote(by: indexPayload.id) else { return }
@@ -351,74 +242,6 @@ struct ContentView: View {
         }
     }
     
-    private func updateTagSuggestions(for text: String) {
-        // If we just selected a tag, only show suggestions if user has typed significantly new content
-        if justSelectedTag {
-            // Check if the current text is just the same as after selection (possibly with trailing spaces)
-            let textWithoutTrailingSpaces = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            let lastTextWithoutTrailingSpaces = lastSearchTextAfterSelection.trimmingCharacters(in: .whitespacesAndNewlines)
-            
-            if textWithoutTrailingSpaces == lastTextWithoutTrailingSpaces {
-                // User hasn't typed any meaningful new content, keep suggestions hidden
-                showTagSuggestions = false
-                tagSuggestions = []
-                return
-            } else {
-                // User typed something new, reset the flag
-                justSelectedTag = false
-            }
-        }
-        
-        let words = text.split(separator: " ")
-        guard let currentWord = words.last, currentWord.hasPrefix("#") else {
-            showTagSuggestions = false
-            tagSuggestions = []
-            return
-        }
-        
-        if currentWord.count == 1 {
-            // Just typed "#", show all available tags
-            if allTags.isEmpty {
-                showTagSuggestions = false
-                tagSuggestions = []
-            } else {
-                showTagSuggestions = true
-                tagSuggestions = allTags
-            }
-            return
-        }
-        
-        // Filter tags based on partial input
-        let tagQuery = String(currentWord.dropFirst())
-        let matchingTags = allTags.filter { tag in
-            tag.localizedCaseInsensitiveContains(tagQuery)
-        }
-        
-        if matchingTags.isEmpty {
-            showTagSuggestions = false
-            tagSuggestions = []
-        } else {
-            showTagSuggestions = true
-            tagSuggestions = matchingTags
-        }
-    }
-    
-    private func selectTag(_ tag: String) {
-        // Replace the current partial tag with the selected tag
-        let words = searchText.split(separator: " ")
-        var newWords = Array(words.dropLast())
-        newWords.append("#\(tag)")
-        
-        searchText = newWords.joined(separator: " ") + " "
-        lastSearchTextAfterSelection = searchText
-        
-        showTagSuggestions = false
-        tagSuggestions = []
-        justSelectedTag = true
-        
-        // Trigger search with new tag
-        performSearch()
-    }
 
     private func addNote() {
         showNoteTypeSelection = true
@@ -466,7 +289,7 @@ struct ContentView: View {
 
     private func deleteIndices(offsets: IndexSet) {
         withAnimation {
-            let indicesToDelete = offsets.map { displayedIndices[$0] }
+            let indicesToDelete = offsets.map { noteIndexViewModel.indexPayloads[$0] }
             
             // Capture all tags from notes before deletion
             var allAssociatedTags = Set<Tag>()
@@ -522,7 +345,7 @@ struct ContentView: View {
 
     
     private func exportAllNotesEncrypted() {
-        guard !displayedIndices.isEmpty else {
+        guard !noteIndexViewModel.indexPayloads.isEmpty else {
             errorManager.handleError(NSError(domain: "ExportError", code: 1, userInfo: [NSLocalizedDescriptionKey: "No notes to export"]), context: "Export failed")
             return
         }

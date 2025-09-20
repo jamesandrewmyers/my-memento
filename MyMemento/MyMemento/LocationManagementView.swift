@@ -18,6 +18,7 @@ struct LocationManagementView: View {
     @State private var showDeleteConfirmation = false
     @State private var deleteWarningMessage = ""
     @State private var isLoading = true
+    @State private var selectedLocationForDetail: Location?
     
     var filteredLocations: [Location] {
         if searchText.isEmpty {
@@ -69,6 +70,9 @@ struct LocationManagementView: View {
                     List {
                         ForEach(filteredLocations, id: \.id) { location in
                             LocationRowView(location: location)
+                                .onTapGesture {
+                                    selectedLocationForDetail = location
+                                }
                         }
                         .onDelete(perform: deleteLocations)
                     }
@@ -95,6 +99,15 @@ struct LocationManagementView: View {
                 }
             } message: {
                 Text(deleteWarningMessage)
+            }
+            .sheet(item: $selectedLocationForDetail) { location in
+                LocationDetailView(
+                    location: location,
+                    viewContext: viewContext,
+                    onLocationSelected: { _ in
+                        selectedLocationForDetail = nil
+                    }
+                )
             }
         }
     }
@@ -219,6 +232,10 @@ private struct LocationRowView: View {
                         .foregroundColor(.secondary)
                         .lineLimit(1)
                 }
+                
+                Image(systemName: "chevron.right")
+                    .foregroundColor(.secondary)
+                    .font(.caption)
             }
         }
         .padding(.vertical, 4)

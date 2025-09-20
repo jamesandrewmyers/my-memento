@@ -14,6 +14,7 @@ struct LocationPickerView: View {
     @State private var errorMessage: String?
     @State private var locationManager: LocationManager?
     @State private var showingMapPicker = false
+    @State private var selectedLocationForDetail: Location?
     
     var body: some View {
         NavigationView {
@@ -103,8 +104,7 @@ struct LocationPickerView: View {
                         // Existing locations
                         ForEach(filteredLocations, id: \.id) { location in
                             LocationRow(location: location, locationManager: locationManager) {
-                                onLocationSelected(location)
-                                dismiss()
+                                selectedLocationForDetail = location
                             }
                         }
                     }
@@ -135,6 +135,12 @@ struct LocationPickerView: View {
         }
         .sheet(isPresented: $showingMapPicker) {
             MapLocationPickerView(viewContext: viewContext) { selectedLocation in
+                onLocationSelected(selectedLocation)
+                dismiss()
+            }
+        }
+        .sheet(item: $selectedLocationForDetail) { location in
+            LocationDetailView(location: location, viewContext: viewContext) { selectedLocation in
                 onLocationSelected(selectedLocation)
                 dismiss()
             }
@@ -259,6 +265,8 @@ struct LocationRow: View {
         }
     }
 }
+
+
 
 #Preview {
     LocationPickerView(

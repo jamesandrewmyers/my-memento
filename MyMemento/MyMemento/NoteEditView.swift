@@ -59,6 +59,7 @@ struct NoteEditView: View {
     @State private var selectedAudioAttachment: Attachment?
     @State private var showVoiceRecorder = false
     @State private var showLocationPicker = false
+    @State private var selectedLocationForDetail: Location?
     
     var body: some View {
         Form {
@@ -160,7 +161,10 @@ struct NoteEditView: View {
                     if !locations.isEmpty {
                         ForEach(locations, id: \.id) { attachment in
                             AttachmentLocationRow(
-                                attachment: attachment
+                                attachment: attachment,
+                                onTap: {
+                                    selectedLocationForDetail = attachment.location
+                                }
                             )
                             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                 Button(role: .destructive) {
@@ -325,6 +329,16 @@ struct NoteEditView: View {
             LocationPickerView(viewContext: viewContext) { selectedLocation in
                 handleSelectedLocation(selectedLocation)
             }
+        }
+        // Location detail view
+        .sheet(item: $selectedLocationForDetail) { location in
+            LocationDetailView(
+                location: location,
+                viewContext: viewContext,
+                onLocationSelected: { _ in
+                    selectedLocationForDetail = nil
+                }
+            )
         }
         // Encrypted Export Sheet
         .sheet(isPresented: $showEncryptedExport) {
@@ -1958,6 +1972,7 @@ struct RichTextEditorWrapper: UIViewRepresentable {
 // MARK: - AttachmentLocationRow
 private struct AttachmentLocationRow: View {
     let attachment: Attachment
+    let onTap: () -> Void
     @Environment(\.managedObjectContext) private var viewContext
     @State private var locationName: String = "Loading..."
     @State private var locationAddress: String = "Loading address..."
@@ -1987,6 +2002,10 @@ private struct AttachmentLocationRow: View {
                 .font(.caption)
         }
         .padding(.vertical, 8)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onTap()
+        }
         .onAppear {
             loadLocationData()
         }

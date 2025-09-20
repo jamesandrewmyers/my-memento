@@ -20,6 +20,7 @@ struct MapLocationPickerView: View {
     @State private var locationManager: LocationManager?
     @State private var addressSearchText = ""
     @State private var isSearching = false
+    @State private var mapRefreshTrigger = false
     
     var body: some View {
         NavigationView {
@@ -53,6 +54,7 @@ struct MapLocationPickerView: View {
                     Map(coordinateRegion: $region, annotationItems: selectedCoordinate.map { [MapAnnotation(coordinate: $0)] } ?? []) { annotation in
                         MapPin(coordinate: annotation.coordinate, tint: .red)
                     }
+                    .id(mapRefreshTrigger)
                     
                     // Crosshair in center
                     Image(systemName: "plus")
@@ -209,11 +211,21 @@ struct MapLocationPickerView: View {
                     return
                 }
                 
-                // Center map on the found location
-                region = MKCoordinateRegion(
-                    center: location.coordinate,
-                    span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
-                )
+                // Center map on the found location with animation
+                withAnimation(.easeInOut(duration: 1.0)) {
+                    region = MKCoordinateRegion(
+                        center: location.coordinate,
+                        span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+                    )
+                }
+                
+                // Force map refresh after a small delay
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    mapRefreshTrigger.toggle()
+                }
+                
+                // Clear the search text
+                addressSearchText = ""
                 
                 // Optionally auto-select this location
                 // selectedCoordinate = location.coordinate

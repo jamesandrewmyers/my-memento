@@ -1,0 +1,197 @@
+import SwiftUI
+import CoreData
+import MapKit
+
+struct LocationPickerView: View {
+    @Environment(\.dismiss) private var dismiss
+    let viewContext: NSManagedObjectContext
+    let onLocationSelected: (Location) -> Void
+    
+    @State private var searchText = ""
+    @State private var locations: [Location] = []
+    @State private var filteredLocations: [Location] = []
+    @State private var isLoading = true
+    @State private var errorMessage: String?
+    @State private var locationManager: LocationManager?
+    
+    var body: some View {
+        NavigationView {
+            VStack {
+                if isLoading {
+                    ProgressView("Loading locations...")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if locations.isEmpty {
+                    VStack(spacing: 16) {
+                        Image(systemName: "location.slash")
+                            .font(.system(size: 60))
+                            .foregroundColor(.secondary)
+                        Text("No Locations Found")
+                            .font(.title2)
+                            .fontWeight(.medium)
+                        Text("Create locations in the app to attach them to notes.")
+                            .font(.body)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    List {
+                        ForEach(filteredLocations, id: \.id) { location in
+                            LocationRow(location: location, locationManager: locationManager) {
+                                onLocationSelected(location)
+                                dismiss()
+                            }
+                        }
+                    }
+                    .searchable(text: $searchText, prompt: "Search locations...")
+                    .onChange(of: searchText) { _, newValue in
+                        filterLocations()
+                    }
+                }
+            }
+            .navigationTitle("Select Location")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+            }
+            .alert("Error", isPresented: .constant(errorMessage != nil)) {
+                Button("OK") {
+                    errorMessage = nil
+                }
+            } message: {
+                if let errorMessage = errorMessage {
+                    Text(errorMessage)
+                }
+            }
+        }
+        .onAppear {
+            setupLocationManager()
+            loadLocations()
+        }
+    }
+    
+    private func setupLocationManager() {
+        locationManager = LocationManager(context: viewContext, keyManager: KeyManager.shared)
+    }
+    
+    private func loadLocations() {
+        guard let locationManager = locationManager else { return }
+        
+        Task {
+            do {
+                let fetchedLocations = try locationManager.fetchAllLocations()
+                await MainActor.run {
+                    self.locations = fetchedLocations
+                    self.filteredLocations = fetchedLocations
+                    self.isLoading = false
+                }
+            } catch {
+                await MainActor.run {
+                    self.errorMessage = "Failed to load locations: \\(error.localizedDescription)"
+                    self.isLoading = false
+                }
+            }
+        }
+    }
+    
+    private func filterLocations() {
+        if searchText.isEmpty {
+            filteredLocations = locations
+        } else {
+            filteredLocations = locations.filter { location in
+                (location.name ?? "").localizedCaseInsensitiveContains(searchText)
+            }
+        }
+    }
+}
+
+struct LocationRow: View {
+    let location: Location
+    let locationManager: LocationManager?
+    let onTap: () -> Void
+    
+    @State private var formattedAddress: String = ""
+    @State private var isLoadingAddress = true
+    
+    var body: some View {
+        Button(action: onTap) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Image(systemName: "location.fill")
+                            .foregroundColor(.blue)
+                            .font(.caption)
+                        Text(location.name ?? "Unnamed Location")
+                            .font(.headline)
+                            .foregroundColor(.primary)
+                        Spacer()
+                    }
+                    
+                    if isLoadingAddress {
+                        HStack {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                            Text("Loading address...")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    } else {
+                        Text(formattedAddress)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(2)
+                    }
+                    
+                    Text("\(String(format: "%.6f", location.latitude)), \(String(format: "%.6f", location.longitude))")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+                
+                Spacer()
+                
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .padding(.vertical, 4)
+        }
+        .buttonStyle(PlainButtonStyle())
+        .onAppear {
+            loadFormattedAddress()
+        }
+    }
+    
+    private func loadFormattedAddress() {
+        guard let locationManager = locationManager else {
+            formattedAddress = String(format: "%.6f, %.6f", location.latitude, location.longitude)
+            isLoadingAddress = false
+            return
+        }
+        
+        Task {
+            do {
+                let address = try locationManager.formatAddress(from: location)
+                await MainActor.run {
+                    self.formattedAddress = address
+                    self.isLoadingAddress = false
+                }
+            } catch {
+                await MainActor.run {
+                    self.formattedAddress = String(format: "%.6f, %.6f", location.latitude, location.longitude)
+                    self.isLoadingAddress = false
+                }
+            }
+        }
+    }
+}
+
+#Preview {
+    LocationPickerView(
+        viewContext: PersistenceController.preview.container.viewContext,
+        onLocationSelected: { _ in }
+    )
+}

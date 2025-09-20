@@ -3,9 +3,10 @@
     <entity name="Attachment" representedClassName="Attachment" syncable="YES" codeGenerationType="class">
         <attribute name="id" attributeType="UUID" usesScalarValueType="NO"/>
         <attribute name="type" attributeType="String"/>
-        <attribute name="relativePath" attributeType="String"/>
+        <attribute name="relativePath" optional="YES" attributeType="String"/>
         <attribute name="createdAt" attributeType="Date" usesScalarValueType="NO"/>
         <relationship name="note" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Note" inverseName="attachments" inverseEntity="Note"/>
+        <relationship name="location" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Location" inverseName="attachments" inverseEntity="Location"/>
     </entity>
     <entity name="Note" representedClassName="Note" syncable="YES" codeGenerationType="class">
         <attribute name="id" attributeType="UUID" usesScalarValueType="NO"/>
@@ -48,6 +49,7 @@
         <attribute name="verticalAccuracy" optional="YES" attributeType="Double" usesScalarValueType="YES"/>
         <attribute name="encryptedPlacemarkData" optional="YES" attributeType="Binary" allowsExternalBinaryDataStorage="NO"/>
         <attribute name="createdAt" attributeType="Date" usesScalarValueType="NO"/>
+        <relationship name="attachments" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="Attachment" inverseName="location" inverseEntity="Attachment"/>
         <uniquenessConstraints>
             <uniquenessConstraint>
                 <constraint value="id"/>

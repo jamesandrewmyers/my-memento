@@ -151,6 +151,40 @@ class AttachmentManager: ObservableObject {
         }
     }
     
+    /// Creates a location attachment for a note
+    /// - Parameters:
+    ///   - note: The note to attach the location to
+    ///   - location: The location to attach
+    ///   - context: Core Data managed object context
+    /// - Returns: The created Attachment entity
+    /// - Throws: AttachmentError if creation fails
+    func createLocationAttachment(for note: Note, from location: Location, context: NSManagedObjectContext) async throws -> Attachment {
+        do {
+            logger.info("Creating location attachment for note \(note.id?.uuidString ?? "unknown") with location \(location.name ?? "unnamed")")
+            
+            // Create Attachment entity in Core Data
+            let attachment = Attachment(context: context)
+            attachment.id = UUID()
+            attachment.type = "location"
+            attachment.relativePath = nil  // Location attachments don't use file paths
+            attachment.createdAt = Date()
+            attachment.note = note
+            attachment.location = location
+            
+            // Save context
+            try context.save()
+            
+            logger.info("Created location attachment: \(attachment.id?.uuidString ?? "unknown") for note: \(note.id?.uuidString ?? "unknown")")
+            
+            return attachment
+            
+        } catch {
+            let wrappedError = AttachmentError.coreDataOperationFailed(error.localizedDescription)
+            ErrorManager.shared.handleError(wrappedError, context: "Creating location attachment")
+            throw wrappedError
+        }
+    }
+    
     /// Deletes an attachment and its encrypted file from disk
     /// - Parameters:
     ///   - attachment: The attachment to delete
@@ -372,6 +406,16 @@ extension AttachmentManager {
     /// - Returns: The created Attachment entity
     static func createAudioAttachment(for note: Note, from sourceURL: URL, context: NSManagedObjectContext) async throws -> Attachment {
         return try await shared.createAudioAttachment(for: note, from: sourceURL, context: context)
+    }
+    
+    /// Creates a location attachment using the shared instance
+    /// - Parameters:
+    ///   - note: The note to attach the location to
+    ///   - location: The location to attach
+    ///   - context: Core Data managed object context
+    /// - Returns: The created Attachment entity
+    static func createLocationAttachment(for note: Note, from location: Location, context: NSManagedObjectContext) async throws -> Attachment {
+        return try await shared.createLocationAttachment(for: note, from: location, context: context)
     }
     
     /// Deletes an attachment using the shared instance

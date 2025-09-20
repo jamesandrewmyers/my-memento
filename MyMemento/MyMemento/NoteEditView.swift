@@ -58,6 +58,7 @@ struct NoteEditView: View {
     @State private var showEncryptedExport = false
     @State private var selectedAudioAttachment: Attachment?
     @State private var showVoiceRecorder = false
+    @State private var showLocationPicker = false
     
     var body: some View {
         Form {
@@ -116,6 +117,7 @@ struct NoteEditView: View {
                     
                     let videos = sortedAttachments.filter { ($0.type ?? "").lowercased() == "video" }
                     let audios = sortedAttachments.filter { ($0.type ?? "").lowercased() == "audio" }
+                    let locations = sortedAttachments.filter { ($0.type ?? "").lowercased() == "location" }
 
                     if !videos.isEmpty {
                         ForEach(videos, id: \.id) { attachment in
@@ -155,7 +157,22 @@ struct NoteEditView: View {
                         }
                     }
                     
-                    if videos.isEmpty && audios.isEmpty {
+                    if !locations.isEmpty {
+                        ForEach(locations, id: \.id) { attachment in
+                            AttachmentLocationRow(
+                                attachment: attachment
+                            )
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button(role: .destructive) {
+                                    deleteAttachment(attachment)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
+                        }
+                    }
+                    
+                    if videos.isEmpty && audios.isEmpty && locations.isEmpty {
                         Text("No attachments")
                             .font(.caption)
                             .foregroundColor(.secondary)
@@ -300,7 +317,14 @@ struct NoteEditView: View {
             Button("Record Video") { showVideoCameraPicker = true }
             Button("Choose Video from Library") { showVideoLibraryPicker = true }
             Button("Record Voice") { showVoiceRecorder = true }
+            Button("Location") { showLocationPicker = true }
             Button("Cancel", role: .cancel) { }
+        }
+        // Location picker
+        .sheet(isPresented: $showLocationPicker) {
+            LocationPickerView(viewContext: viewContext) { selectedLocation in
+                handleSelectedLocation(selectedLocation)
+            }
         }
         // Encrypted Export Sheet
         .sheet(isPresented: $showEncryptedExport) {
@@ -886,6 +910,20 @@ struct NoteEditView: View {
         }
     }
 
+    private func handleSelectedLocation(_ location: Location) {
+        guard let note = note else { return }
+        isEncryptingAttachment = true
+        Task { @MainActor in
+            do {
+                _ = try await AttachmentManager.createLocationAttachment(for: note, from: location, context: viewContext)
+                attachmentsRefreshID = UUID()
+            } catch {
+                ErrorManager.shared.handleError(error, context: "Attaching location")
+            }
+            isEncryptingAttachment = false
+        }
+    }
+    
     private func deleteAttachment(_ attachment: Attachment) {
         guard let id = attachment.id else { return }
         Task { @MainActor in
@@ -1913,6 +1951,73 @@ struct RichTextEditorWrapper: UIViewRepresentable {
         let currentText = uiView.getAttributedText()
         if !currentText.isEqual(to: attributedText) {
             uiView.setAttributedText(attributedText)
+        }
+    }
+}
+
+// MARK: - AttachmentLocationRow
+private struct AttachmentLocationRow: View {
+    let attachment: Attachment
+    @Environment(\.managedObjectContext) private var viewContext
+    @State private var locationName: String = "Loading..."
+    @State private var locationAddress: String = "Loading address..."
+    
+    var body: some View {
+        HStack {
+            Image(systemName: "location.fill")
+                .foregroundColor(.blue)
+                .font(.title2)
+                .frame(width: 40)
+            
+            VStack(alignment: .leading, spacing: 4) {
+                Text(locationName)
+                    .font(.headline)
+                    .lineLimit(1)
+                
+                Text(locationAddress)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+            }
+            
+            Spacer()
+            
+            Image(systemName: "chevron.right")
+                .foregroundColor(.secondary)
+                .font(.caption)
+        }
+        .padding(.vertical, 8)
+        .onAppear {
+            loadLocationData()
+        }
+    }
+    
+    private func loadLocationData() {
+        guard let location = attachment.location else {
+            locationName = "Unknown Location"
+            locationAddress = "No location data"
+            return
+        }
+        
+        Task {
+            do {
+                let locationManager = LocationManager(context: viewContext, keyManager: KeyManager.shared)
+                
+                // Location is already available from the relationship
+                await MainActor.run {
+                    locationName = location.name ?? "Unnamed Location"
+                }
+                
+                let address = try locationManager.formatAddress(from: location)
+                await MainActor.run {
+                    locationAddress = address
+                }
+            } catch {
+                await MainActor.run {
+                    locationName = "Error Loading Location"
+                    locationAddress = "Failed to load location data"
+                }
+            }
         }
     }
 }

@@ -49,7 +49,7 @@ struct EncryptedExportView: View {
                             RoundedRectangle(cornerRadius: 8)
                                 .stroke(Color.gray.opacity(0.3), lineWidth: 1)
                         )
-                        .onChange(of: publicKeyText) { _ in
+                        .onChange(of: publicKeyText) {
                             validatePublicKey()
                         }
                     

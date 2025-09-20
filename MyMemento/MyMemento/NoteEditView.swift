@@ -797,7 +797,9 @@ struct NoteEditView: View {
         activityVC.excludedActivityTypes = []
         print("ShareSheet: Set excludedActivityTypes to empty array to see all options")
         if let popover = activityVC.popoverPresentationController {
-            popover.sourceView = UIApplication.shared.windows.first { $0.isKeyWindow }
+            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
+                popover.sourceView = windowScene.windows.first { $0.isKeyWindow }
+            }
             if let sourceView = popover.sourceView {
                 popover.sourceRect = CGRect(x: sourceView.bounds.midX, y: sourceView.bounds.midY, width: 0, height: 0)
                 popover.permittedArrowDirections = []
@@ -868,13 +870,19 @@ struct NoteEditView: View {
                 generator.appliesPreferredTrackTransform = true
                 // Try a small offset to avoid black first frame
                 let time = CMTime(seconds: 0.1, preferredTimescale: 600)
-                var actualTime = CMTime.zero
-                let cgImage = try generator.copyCGImage(at: time, actualTime: &actualTime)
-                let image = UIImage(cgImage: cgImage)
-
-                DispatchQueue.main.async {
-                    self.videoThumbnails[id] = image
-                    self.generatingThumbnailIDs.remove(id)
+                
+                generator.generateCGImageAsynchronously(for: time) { cgImage, actualTime, error in
+                    if let cgImage = cgImage, error == nil {
+                        let image = UIImage(cgImage: cgImage)
+                        DispatchQueue.main.async {
+                            self.videoThumbnails[id] = image
+                            self.generatingThumbnailIDs.remove(id)
+                        }
+                    } else {
+                        DispatchQueue.main.async {
+                            self.generatingThumbnailIDs.remove(id)
+                        }
+                    }
                 }
             } catch {
                 DispatchQueue.main.async {
@@ -1304,7 +1312,7 @@ struct VoiceRecorderView: View {
             try AVAudioSession.sharedInstance().setActive(true)
             
             // Request permission
-            AVAudioSession.sharedInstance().requestRecordPermission { granted in
+            AVAudioApplication.requestRecordPermission { granted in
                 DispatchQueue.main.async {
                     if !granted {
                         self.hasError = true

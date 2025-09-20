@@ -11,6 +11,10 @@ struct MapLocationPickerView: View {
         center: CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194), // San Francisco default
         span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
     )
+    @State private var cameraPosition = MapCameraPosition.region(MKCoordinateRegion(
+        center: CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194),
+        span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
+    ))
     @State private var selectedCoordinate: CLLocationCoordinate2D?
     @State private var selectedPlacemark: CLPlacemark?
     @State private var isLoadingLocation = false
@@ -51,10 +55,20 @@ struct MapLocationPickerView: View {
                 
                 // Map View with crosshair
                 ZStack {
-                    Map(coordinateRegion: $region, annotationItems: selectedCoordinate.map { [MapAnnotation(coordinate: $0)] } ?? []) { annotation in
-                        MapPin(coordinate: annotation.coordinate, tint: .red)
+                    if #available(iOS 17.0, *) {
+                        Map(position: $cameraPosition) {
+                            if let coordinate = selectedCoordinate {
+                                Marker("", coordinate: coordinate)
+                                    .tint(.red)
+                            }
+                        }
+                        .id(mapRefreshTrigger)
+                    } else {
+                        Map(coordinateRegion: $region, annotationItems: selectedCoordinate.map { [MapAnnotation(coordinate: $0)] } ?? []) { annotation in
+                            MapPin(coordinate: annotation.coordinate, tint: .red)
+                        }
+                        .id(mapRefreshTrigger)
                     }
-                    .id(mapRefreshTrigger)
                     
                     // Crosshair in center
                     Image(systemName: "plus")
@@ -182,10 +196,12 @@ struct MapLocationPickerView: View {
         locationManager.requestWhenInUseAuthorization()
         
         if let userLocation = locationManager.location {
-            region = MKCoordinateRegion(
+            let newRegion = MKCoordinateRegion(
                 center: userLocation.coordinate,
                 span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
             )
+            region = newRegion
+            cameraPosition = .region(newRegion)
         }
     }
     
@@ -212,11 +228,13 @@ struct MapLocationPickerView: View {
                 }
                 
                 // Center map on the found location with animation
+                let newRegion = MKCoordinateRegion(
+                    center: location.coordinate,
+                    span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+                )
                 withAnimation(.easeInOut(duration: 1.0)) {
-                    region = MKCoordinateRegion(
-                        center: location.coordinate,
-                        span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
-                    )
+                    region = newRegion
+                    cameraPosition = .region(newRegion)
                 }
                 
                 // Force map refresh after a small delay

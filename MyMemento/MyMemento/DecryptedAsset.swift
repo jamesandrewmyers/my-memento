@@ -99,7 +99,7 @@ fileprivate class DecryptedAssetResourceLoader: NSObject, AVAssetResourceLoaderD
             
             // Handle data request
             if let dataRequest = loadingRequest.dataRequest {
-                let requestedOffset = Int(dataRequest.requestedOffset)
+                let _ = Int(dataRequest.requestedOffset)
                 let requestedLength = dataRequest.requestedLength
                 let currentOffset = Int(dataRequest.currentOffset)
                 

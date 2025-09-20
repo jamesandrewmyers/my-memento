@@ -9,6 +9,7 @@ struct LocationDetailView: View {
     let onLocationSelected: (Location) -> Void
     
     @State private var region: MKCoordinateRegion
+    @State private var cameraPosition: MapCameraPosition
     @State private var locationManager: LocationManager?
     @State private var formattedAddress = "Loading address..."
     @State private var isLoadingAddress = true
@@ -19,20 +20,28 @@ struct LocationDetailView: View {
         self.onLocationSelected = onLocationSelected
         
         // Initialize region centered on the location
-        self._region = State(initialValue: MKCoordinateRegion(
-            center: CLLocationCoordinate2D(latitude: location.latitude, longitude: location.longitude),
-            span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
-        ))
+        let center = CLLocationCoordinate2D(latitude: location.latitude, longitude: location.longitude)
+        let span = MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+        self._region = State(initialValue: MKCoordinateRegion(center: center, span: span))
+        self._cameraPosition = State(initialValue: .region(MKCoordinateRegion(center: center, span: span)))
     }
     
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
                 // Map View
-                Map(coordinateRegion: $region, annotationItems: [LocationDetailMapAnnotation(coordinate: CLLocationCoordinate2D(latitude: location.latitude, longitude: location.longitude))]) { annotation in
-                    MapPin(coordinate: annotation.coordinate, tint: .blue)
+                if #available(iOS 17.0, *) {
+                    Map(position: $cameraPosition) {
+                        Marker("", coordinate: CLLocationCoordinate2D(latitude: location.latitude, longitude: location.longitude))
+                            .tint(.blue)
+                    }
+                    .frame(height: 300)
+                } else {
+                    Map(coordinateRegion: $region, annotationItems: [LocationDetailMapAnnotation(coordinate: CLLocationCoordinate2D(latitude: location.latitude, longitude: location.longitude))]) { annotation in
+                        MapPin(coordinate: annotation.coordinate, tint: .blue)
+                    }
+                    .frame(height: 300)
                 }
-                .frame(height: 300)
                 
                 // Location Details
                 VStack(alignment: .leading, spacing: 16) {

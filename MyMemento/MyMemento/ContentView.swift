@@ -38,6 +38,7 @@ struct ContentView: View {
     @State private var lastSearchTextAfterSelection = ""
     @State private var sortOption: SortOption = .createdAt
     @State private var showTagList = false
+    @State private var showLocationManagement = false
     @State private var showExportDialog = false
     @State private var isExporting = false
     @State private var exportProgress = 0.0
@@ -135,6 +136,7 @@ struct ContentView: View {
             .toolbar {
                 ContentViewToolbar(
                     showTagList: $showTagList,
+                    showLocationManagement: $showLocationManagement,
                     showImportPicker: $showImportPicker,
                     showExportDialog: $showExportDialog,
                     isDeleteMode: $isDeleteMode,
@@ -146,6 +148,9 @@ struct ContentView: View {
             }
             .sheet(isPresented: $showTagList) {
                 TagBrowserView()
+            }
+            .sheet(isPresented: $showLocationManagement) {
+                LocationManagementView()
             }
             .sheet(isPresented: $showNoteTypeSelection) {
                 NoteTypeSelectionView(isPresented: $showNoteTypeSelection) { noteType in

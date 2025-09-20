@@ -10,6 +10,7 @@ import SwiftUI
 
 struct ContentViewToolbar: ToolbarContent {
     @Binding var showTagList: Bool
+    @Binding var showLocationManagement: Bool
     @Binding var showImportPicker: Bool
     @Binding var showExportDialog: Bool
     @Binding var isDeleteMode: Bool
@@ -22,9 +23,16 @@ struct ContentViewToolbar: ToolbarContent {
 
     var body: some ToolbarContent {
         ToolbarItem(placement: .navigationBarLeading) {
-            Button(action: { showTagList = true }) {
-                Image(systemName: "tag")
-                    .foregroundColor(.primary)
+            HStack {
+                Button(action: { showTagList = true }) {
+                    Image(systemName: "tag")
+                        .foregroundColor(.primary)
+                }
+                
+                Button(action: { showLocationManagement = true }) {
+                    Image(systemName: "location")
+                        .foregroundColor(.primary)
+                }
             }
         }
         

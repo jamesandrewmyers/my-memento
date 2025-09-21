@@ -4,6 +4,7 @@ import CoreData
 
 struct LocationDetailView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var noteIndexViewModel: NoteIndexViewModel
     let location: Location
     let viewContext: NSManagedObjectContext
     let onLocationSelected: (Location) -> Void
@@ -13,6 +14,7 @@ struct LocationDetailView: View {
     @State private var locationManager: LocationManager?
     @State private var formattedAddress = "Loading address..."
     @State private var isLoadingAddress = true
+    @State private var notesWithLocation: [IndexPayload] = []
     
     init(location: Location, viewContext: NSManagedObjectContext, onLocationSelected: @escaping (Location) -> Void) {
         self.location = location
@@ -28,91 +30,132 @@ struct LocationDetailView: View {
     
     var body: some View {
         NavigationView {
-            VStack(spacing: 0) {
-                // Map View
-                if #available(iOS 17.0, *) {
-                    Map(position: $cameraPosition) {
-                        Marker("", coordinate: CLLocationCoordinate2D(latitude: location.latitude, longitude: location.longitude))
-                            .tint(.blue)
+            ScrollView {
+                VStack(spacing: 0) {
+                    // Map View
+                    if #available(iOS 17.0, *) {
+                        Map(position: $cameraPosition) {
+                            Marker("", coordinate: CLLocationCoordinate2D(latitude: location.latitude, longitude: location.longitude))
+                                .tint(.blue)
+                        }
+                        .frame(height: 250)
+                    } else {
+                        Map(coordinateRegion: $region, annotationItems: [LocationDetailMapAnnotation(coordinate: CLLocationCoordinate2D(latitude: location.latitude, longitude: location.longitude))]) { annotation in
+                            MapPin(coordinate: annotation.coordinate, tint: .blue)
+                        }
+                        .frame(height: 250)
                     }
-                    .frame(height: 300)
-                } else {
-                    Map(coordinateRegion: $region, annotationItems: [LocationDetailMapAnnotation(coordinate: CLLocationCoordinate2D(latitude: location.latitude, longitude: location.longitude))]) { annotation in
-                        MapPin(coordinate: annotation.coordinate, tint: .blue)
-                    }
-                    .frame(height: 300)
-                }
-                
-                // Location Details
-                VStack(alignment: .leading, spacing: 16) {
-                    // Location Name
-                    HStack {
-                        Image(systemName: "location.fill")
-                            .foregroundColor(.blue)
-                            .font(.title2)
-                        
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(location.name ?? "Unnamed Location")
+                    
+                    // Location Details
+                    VStack(alignment: .leading, spacing: 16) {
+                        // Location Name
+                        HStack {
+                            Image(systemName: "location.fill")
+                                .foregroundColor(.blue)
                                 .font(.title2)
-                                .fontWeight(.semibold)
                             
-                            if isLoadingAddress {
-                                HStack {
-                                    ProgressView()
-                                        .scaleEffect(0.8)
-                                    Text("Loading address...")
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(location.name ?? "Unnamed Location")
+                                    .font(.title2)
+                                    .fontWeight(.semibold)
+                                
+                                if isLoadingAddress {
+                                    HStack {
+                                        ProgressView()
+                                            .scaleEffect(0.8)
+                                        Text("Loading address...")
+                                            .font(.body)
+                                            .foregroundColor(.secondary)
+                                    }
+                                } else {
+                                    Text(formattedAddress)
                                         .font(.body)
                                         .foregroundColor(.secondary)
                                 }
-                            } else {
-                                Text(formattedAddress)
+                            }
+                            
+                            Spacer()
+                        }
+                        
+                        // Coordinates
+                        HStack {
+                            Image(systemName: "globe")
+                                .foregroundColor(.secondary)
+                                .frame(width: 20)
+                            
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Coordinates")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Text(String(format: "%.6f, %.6f", location.latitude, location.longitude))
                                     .font(.body)
+                                    .monospaced()
+                            }
+                            
+                            Spacer()
+                        }
+                        
+                        // Created Date
+                        HStack {
+                            Image(systemName: "calendar")
+                                .foregroundColor(.secondary)
+                                .frame(width: 20)
+                            
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Created")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Text(location.createdAt?.formatted(date: .abbreviated, time: .shortened) ?? "Unknown")
+                                    .font(.body)
+                            }
+                            
+                            Spacer()
+                        }
+                        
+                        Divider()
+                            .padding(.vertical)
+                        
+                        // Notes section header
+                        HStack {
+                            Image(systemName: "doc.text")
+                                .foregroundColor(.secondary)
+                                .frame(width: 20)
+                            
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Notes with this location")
+                                    .font(.headline)
+                                Text("\(notesWithLocation.count) note\(notesWithLocation.count == 1 ? "" : "s")")
+                                    .font(.caption)
                                     .foregroundColor(.secondary)
                             }
+                            
+                            Spacer()
                         }
-                        
-                        Spacer()
                     }
+                    .padding()
+                    .background(Color(.systemBackground))
                     
-                    // Coordinates
-                    HStack {
-                        Image(systemName: "globe")
-                            .foregroundColor(.secondary)
-                            .frame(width: 20)
-                        
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Coordinates")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            Text(String(format: "%.6f, %.6f", location.latitude, location.longitude))
-                                .font(.body)
-                                .monospaced()
+                    // Notes List
+                    if notesWithLocation.isEmpty {
+                        VStack(spacing: 8) {
+                            Image(systemName: "doc.text.below.ecg")
+                                .font(.system(size: 40))
+                                .foregroundColor(.gray)
+                            Text("No notes with this location")
+                                .font(.subheadline)
+                                .foregroundColor(.gray)
                         }
-                        
-                        Spacer()
+                        .padding(.vertical, 40)
+                    } else {
+                        NoteListWithFiltersView.readOnly(
+                            allIndices: notesWithLocation,
+                            navigationTitle: "",
+                            showSearch: false,
+                            showSort: false
+                        )
+                        .frame(minHeight: 400)
                     }
-                    
-                    // Created Date
-                    HStack {
-                        Image(systemName: "calendar")
-                            .foregroundColor(.secondary)
-                            .frame(width: 20)
-                        
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Created")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            Text(location.createdAt?.formatted(date: .abbreviated, time: .shortened) ?? "Unknown")
-                                .font(.body)
-                        }
-                        
-                        Spacer()
-                    }
-                    
-                    Spacer()
                 }
-                .padding()
-                .background(Color(.systemBackground))
             }
             .navigationTitle("Location Details")
             .navigationBarTitleDisplayMode(.inline)
@@ -131,9 +174,17 @@ struct LocationDetailView: View {
                 }
             }
         }
+        .navigationDestination(for: IndexPayload.self) { indexPayload in
+            NoteEditView(indexPayload: indexPayload)
+                .onDisappear {
+                    noteIndexViewModel.refreshIndex(from: viewContext)
+                    loadNotesWithLocation()
+                }
+        }
         .onAppear {
             setupLocationManager()
             loadFormattedAddress()
+            loadNotesWithLocation()
         }
     }
     
@@ -161,6 +212,31 @@ struct LocationDetailView: View {
                     self.isLoadingAddress = false
                 }
             }
+        }
+    }
+    
+    private func loadNotesWithLocation() {
+        // Find all attachments that reference this location
+        let fetchRequest: NSFetchRequest<Attachment> = Attachment.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "location == %@", location)
+        
+        do {
+            let attachments = try viewContext.fetch(fetchRequest)
+            let noteIds = Set(attachments.compactMap { $0.note?.id })
+            
+            // Filter noteIndexViewModel to only include notes with this location
+            notesWithLocation = noteIndexViewModel.indexPayloads.filter { indexPayload in
+                noteIds.contains(indexPayload.id)
+            }.sorted { index1, index2 in
+                // Sort by pinned status first, then by creation date
+                if index1.pinned != index2.pinned {
+                    return index1.pinned && !index2.pinned
+                }
+                return index1.createdAt > index2.createdAt
+            }
+        } catch {
+            print("Error loading notes with location: \(error)")
+            notesWithLocation = []
         }
     }
 }

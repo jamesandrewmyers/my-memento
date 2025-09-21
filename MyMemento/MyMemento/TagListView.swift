@@ -143,55 +143,23 @@ struct TagListView: View {
 
 struct TaggedNotesView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.managedObjectContext) private var viewContext
     @EnvironmentObject private var noteIndexViewModel: NoteIndexViewModel
+    @StateObject private var errorManager = ErrorManager.shared
     
     let tagName: String
     
     private var filteredIndices: [IndexPayload] {
         return TagManager.filterNotes(by: tagName, in: noteIndexViewModel.indexPayloads)
-            .sorted { index1, index2 in
-                if index1.pinned != index2.pinned {
-                    return index1.pinned && !index2.pinned
-                }
-                return index1.createdAt > index2.createdAt
-            }
     }
     
     var body: some View {
-        List {
-            if filteredIndices.isEmpty {
-                Text("No notes with this tag")
-                    .foregroundColor(.secondary)
-                    .italic()
-            } else {
-                ForEach(filteredIndices, id: \.id) { indexPayload in
-                    NavigationLink(destination: NoteEditView(indexPayload: indexPayload)) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                if indexPayload.pinned {
-                                    Image(systemName: "pin.fill")
-                                        .foregroundColor(.orange)
-                                        .font(.caption)
-                                }
-                                Text(indexPayload.title)
-                                    .font(.headline)
-                                    .foregroundColor(.primary)
-                                Spacer()
-                            }
-                            
-                            if !indexPayload.summary.isEmpty {
-                                Text(indexPayload.summary)
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(2)
-                            }
-                        }
-                        .padding(.vertical, 4)
-                    }
-                }
-            }
-        }
-        .navigationTitle(tagName)
+        NoteListWithFiltersView.readOnly(
+            allIndices: filteredIndices,
+            navigationTitle: tagName,
+            showSearch: true,
+            showSort: true
+        )
         .navigationBarTitleDisplayMode(.inline)
     }
 }

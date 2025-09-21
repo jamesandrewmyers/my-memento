@@ -137,6 +137,12 @@ struct TagBrowserView: View {
                     }
                 }
             }
+            .navigationDestination(for: IndexPayload.self) { indexPayload in
+                NoteEditView(indexPayload: indexPayload)
+                    .onDisappear {
+                        noteIndexViewModel.refreshIndex(from: viewContext)
+                    }
+            }
         }
         .alert("Delete Tag", isPresented: $showDeleteConfirmation) {
             Button("Cancel", role: .cancel) { tagToDelete = nil }

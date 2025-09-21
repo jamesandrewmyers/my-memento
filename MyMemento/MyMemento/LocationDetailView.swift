@@ -29,102 +29,121 @@ struct LocationDetailView: View {
     }
     
     var body: some View {
-        NavigationView {
-            VStack(spacing: 0) {
-                // Location Summary Card
-                VStack(spacing: 0) {
-                    // Map View
-                    if #available(iOS 17.0, *) {
-                        Map(position: $cameraPosition) {
-                            Marker("", coordinate: CLLocationCoordinate2D(latitude: location.latitude, longitude: location.longitude))
-                                .tint(.blue)
-                        }
-                        .frame(height: 200)
-                    } else {
-                        Map(coordinateRegion: $region, annotationItems: [LocationDetailMapAnnotation(coordinate: CLLocationCoordinate2D(latitude: location.latitude, longitude: location.longitude))]) { annotation in
-                            MapPin(coordinate: annotation.coordinate, tint: .blue)
-                        }
-                        .frame(height: 200)
-                    }
-                    
-                    // Location Info Summary
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            Image(systemName: "location.fill")
-                                .foregroundColor(.blue)
-                                .font(.title3)
-                            
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(location.name ?? "Unnamed Location")
-                                    .font(.headline)
-                                    .fontWeight(.semibold)
-                                
-                                if isLoadingAddress {
-                                    HStack {
-                                        ProgressView()
-                                            .scaleEffect(0.7)
-                                        Text("Loading address...")
-                                            .font(.caption)
-                                            .foregroundColor(.secondary)
-                                    }
-                                } else {
-                                    Text(formattedAddress)
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
+        Group {
+            if #available(iOS 16.0, *) {
+                NavigationStack {
+                    contentView
+                        .navigationDestination(for: IndexPayload.self) { indexPayload in
+                            NoteEditView(indexPayload: indexPayload)
+                                .onDisappear {
+                                    noteIndexViewModel.refreshIndex(from: viewContext)
+                                    loadNotesWithLocation()
                                 }
-                            }
-                            
-                            Spacer()
-                            
-                            Text("\(notesWithLocation.count) note\(notesWithLocation.count == 1 ? "" : "s")")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
                         }
-                    }
-                    .padding()
-                    .background(Color(.systemBackground))
                 }
-                .background(Color(.systemBackground))
-                .cornerRadius(12)
-                .shadow(radius: 2)
-                .padding()
-                
-                // Notes List with full functionality
-                NoteListWithFiltersView.readOnly(
-                    allIndices: notesWithLocation,
-                    navigationTitle: "Notes with this location",
-                    showSearch: true,
-                    showSort: true
-                )
-            }
-            .navigationTitle("Location Details")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                }
-                
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Select") {
-                        onLocationSelected(location)
-                        dismiss()
-                    }
+            } else {
+                NavigationView {
+                    contentView
+                        .navigationDestination(for: IndexPayload.self) { indexPayload in
+                            NoteEditView(indexPayload: indexPayload)
+                                .onDisappear {
+                                    noteIndexViewModel.refreshIndex(from: viewContext)
+                                    loadNotesWithLocation()
+                                }
+                        }
                 }
             }
-        }
-        .navigationDestination(for: IndexPayload.self) { indexPayload in
-            NoteEditView(indexPayload: indexPayload)
-                .onDisappear {
-                    noteIndexViewModel.refreshIndex(from: viewContext)
-                    loadNotesWithLocation()
-                }
         }
         .onAppear {
             setupLocationManager()
             loadFormattedAddress()
             loadNotesWithLocation()
+        }
+    }
+    
+    private var contentView: some View {
+        VStack(spacing: 0) {
+            // Location Summary Card
+            VStack(spacing: 0) {
+                // Map View
+                if #available(iOS 17.0, *) {
+                    Map(position: $cameraPosition) {
+                        Marker("", coordinate: CLLocationCoordinate2D(latitude: location.latitude, longitude: location.longitude))
+                            .tint(.blue)
+                    }
+                    .frame(height: 200)
+                } else {
+                    Map(coordinateRegion: $region, annotationItems: [LocationDetailMapAnnotation(coordinate: CLLocationCoordinate2D(latitude: location.latitude, longitude: location.longitude))]) { annotation in
+                        MapPin(coordinate: annotation.coordinate, tint: .blue)
+                    }
+                    .frame(height: 200)
+                }
+                
+                // Location Info Summary
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Image(systemName: "location.fill")
+                            .foregroundColor(.blue)
+                            .font(.title3)
+                        
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(location.name ?? "Unnamed Location")
+                                .font(.headline)
+                                .fontWeight(.semibold)
+                            
+                            if isLoadingAddress {
+                                HStack {
+                                    ProgressView()
+                                        .scaleEffect(0.7)
+                                    Text("Loading address...")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            } else {
+                                Text(formattedAddress)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        
+                        Spacer()
+                        
+                        Text("\(notesWithLocation.count) note\(notesWithLocation.count == 1 ? "" : "s")")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding()
+                .background(Color(.systemBackground))
+            }
+            .background(Color(.systemBackground))
+            .cornerRadius(12)
+            .shadow(radius: 2)
+            .padding()
+            
+            // Notes List with full functionality
+            NoteListWithFiltersView.readOnly(
+                allIndices: notesWithLocation,
+                navigationTitle: "Notes with this location",
+                showSearch: true,
+                showSort: true
+            )
+        }
+        .navigationTitle("Location Details")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button("Cancel") {
+                    dismiss()
+                }
+            }
+            
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button("Select") {
+                    onLocationSelected(location)
+                    dismiss()
+                }
+            }
         }
     }
     

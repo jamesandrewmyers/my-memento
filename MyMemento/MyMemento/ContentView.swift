@@ -27,7 +27,6 @@ struct ContentView: View {
     @Environment(\.managedObjectContext) private var viewContext
     @EnvironmentObject private var noteIndexViewModel: NoteIndexViewModel
     @StateObject private var errorManager = ErrorManager.shared
-    @State private var isDeleteMode = false
     @State private var navigationPath = NavigationPath()
     @State private var showTagList = false
     @State private var showLocationManagement = false
@@ -72,10 +71,8 @@ struct ContentView: View {
                     showLocationManagement: $showLocationManagement,
                     showImportPicker: $showImportPicker,
                     showExportDialog: $showExportDialog,
-                    isDeleteMode: $isDeleteMode,
                     isImporting: isImporting,
                     isExporting: isExporting,
-                    onToggleDeleteMode: toggleDeleteMode,
                     onAddNote: addNote
                 )
             }
@@ -152,12 +149,6 @@ struct ContentView: View {
         } catch {
             logger.error("Failed to fetch note with id \(id.uuidString): \(error.localizedDescription)")
             return nil
-        }
-    }
-    
-    private func toggleDeleteMode() {
-        withAnimation {
-            isDeleteMode.toggle()
         }
     }
     

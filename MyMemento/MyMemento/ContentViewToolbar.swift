@@ -13,12 +13,10 @@ struct ContentViewToolbar: ToolbarContent {
     @Binding var showLocationManagement: Bool
     @Binding var showImportPicker: Bool
     @Binding var showExportDialog: Bool
-    @Binding var isDeleteMode: Bool
     
     var isImporting: Bool
     var isExporting: Bool
     
-    var onToggleDeleteMode: () -> Void
     var onAddNote: () -> Void
 
     var body: some ToolbarContent {
@@ -57,12 +55,6 @@ struct ContentViewToolbar: ToolbarContent {
                         Image(systemName: "square.and.arrow.up")
                             .foregroundColor(.primary)
                     }
-                }
-                .disabled(isExporting || isImporting)
-                
-                Button(action: onToggleDeleteMode) {
-                    Image(systemName: "minus")
-                        .foregroundColor(isDeleteMode ? .red : .primary)
                 }
                 .disabled(isExporting || isImporting)
                 

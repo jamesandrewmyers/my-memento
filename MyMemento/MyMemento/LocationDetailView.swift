@@ -30,7 +30,8 @@ struct LocationDetailView: View {
     
     var body: some View {
         NavigationView {
-            ScrollView {
+            VStack(spacing: 0) {
+                // Location Summary Card
                 VStack(spacing: 0) {
                     // Map View
                     if #available(iOS 17.0, *) {
@@ -38,124 +39,63 @@ struct LocationDetailView: View {
                             Marker("", coordinate: CLLocationCoordinate2D(latitude: location.latitude, longitude: location.longitude))
                                 .tint(.blue)
                         }
-                        .frame(height: 250)
+                        .frame(height: 200)
                     } else {
                         Map(coordinateRegion: $region, annotationItems: [LocationDetailMapAnnotation(coordinate: CLLocationCoordinate2D(latitude: location.latitude, longitude: location.longitude))]) { annotation in
                             MapPin(coordinate: annotation.coordinate, tint: .blue)
                         }
-                        .frame(height: 250)
+                        .frame(height: 200)
                     }
                     
-                    // Location Details
-                    VStack(alignment: .leading, spacing: 16) {
-                        // Location Name
+                    // Location Info Summary
+                    VStack(alignment: .leading, spacing: 12) {
                         HStack {
                             Image(systemName: "location.fill")
                                 .foregroundColor(.blue)
-                                .font(.title2)
+                                .font(.title3)
                             
-                            VStack(alignment: .leading, spacing: 4) {
+                            VStack(alignment: .leading, spacing: 2) {
                                 Text(location.name ?? "Unnamed Location")
-                                    .font(.title2)
+                                    .font(.headline)
                                     .fontWeight(.semibold)
                                 
                                 if isLoadingAddress {
                                     HStack {
                                         ProgressView()
-                                            .scaleEffect(0.8)
+                                            .scaleEffect(0.7)
                                         Text("Loading address...")
-                                            .font(.body)
+                                            .font(.caption)
                                             .foregroundColor(.secondary)
                                     }
                                 } else {
                                     Text(formattedAddress)
-                                        .font(.body)
+                                        .font(.caption)
                                         .foregroundColor(.secondary)
                                 }
                             }
                             
                             Spacer()
-                        }
-                        
-                        // Coordinates
-                        HStack {
-                            Image(systemName: "globe")
+                            
+                            Text("\(notesWithLocation.count) note\(notesWithLocation.count == 1 ? "" : "s")")
+                                .font(.caption)
                                 .foregroundColor(.secondary)
-                                .frame(width: 20)
-                            
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Coordinates")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                Text(String(format: "%.6f, %.6f", location.latitude, location.longitude))
-                                    .font(.body)
-                                    .monospaced()
-                            }
-                            
-                            Spacer()
-                        }
-                        
-                        // Created Date
-                        HStack {
-                            Image(systemName: "calendar")
-                                .foregroundColor(.secondary)
-                                .frame(width: 20)
-                            
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Created")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                Text(location.createdAt?.formatted(date: .abbreviated, time: .shortened) ?? "Unknown")
-                                    .font(.body)
-                            }
-                            
-                            Spacer()
-                        }
-                        
-                        Divider()
-                            .padding(.vertical)
-                        
-                        // Notes section header
-                        HStack {
-                            Image(systemName: "doc.text")
-                                .foregroundColor(.secondary)
-                                .frame(width: 20)
-                            
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Notes with this location")
-                                    .font(.headline)
-                                Text("\(notesWithLocation.count) note\(notesWithLocation.count == 1 ? "" : "s")")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                            
-                            Spacer()
                         }
                     }
                     .padding()
                     .background(Color(.systemBackground))
-                    
-                    // Notes List
-                    if notesWithLocation.isEmpty {
-                        VStack(spacing: 8) {
-                            Image(systemName: "doc.text.below.ecg")
-                                .font(.system(size: 40))
-                                .foregroundColor(.gray)
-                            Text("No notes with this location")
-                                .font(.subheadline)
-                                .foregroundColor(.gray)
-                        }
-                        .padding(.vertical, 40)
-                    } else {
-                        NoteListWithFiltersView.readOnly(
-                            allIndices: notesWithLocation,
-                            navigationTitle: "",
-                            showSearch: false,
-                            showSort: false
-                        )
-                        .frame(minHeight: 400)
-                    }
                 }
+                .background(Color(.systemBackground))
+                .cornerRadius(12)
+                .shadow(radius: 2)
+                .padding()
+                
+                // Notes List with full functionality
+                NoteListWithFiltersView.readOnly(
+                    allIndices: notesWithLocation,
+                    navigationTitle: "Notes with this location",
+                    showSearch: true,
+                    showSort: true
+                )
             }
             .navigationTitle("Location Details")
             .navigationBarTitleDisplayMode(.inline)

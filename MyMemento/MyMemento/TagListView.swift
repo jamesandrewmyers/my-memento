@@ -161,5 +161,11 @@ struct TaggedNotesView: View {
             showSort: true
         )
         .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(for: IndexPayload.self) { indexPayload in
+            NoteEditView(indexPayload: indexPayload)
+                .onDisappear {
+                    noteIndexViewModel.refreshIndex(from: viewContext)
+                }
+        }
     }
 }

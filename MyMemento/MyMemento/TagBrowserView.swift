@@ -105,7 +105,7 @@ struct TagBrowserView: View {
                             .italic()
                     } else {
                         ForEach(displayedTags, id: \.self) { tagName in
-                            NavigationLink(destination: TaggedNotesView(tagName: tagName)) {
+                            NavigationLink(value: tagName) {
                                 HStack {
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(tagName)
@@ -137,11 +137,8 @@ struct TagBrowserView: View {
                     }
                 }
             }
-            .navigationDestination(for: IndexPayload.self) { indexPayload in
-                NoteEditView(indexPayload: indexPayload)
-                    .onDisappear {
-                        noteIndexViewModel.refreshIndex(from: viewContext)
-                    }
+            .navigationDestination(for: String.self) { tagName in
+                TaggedNotesView(tagName: tagName)
             }
         }
         .alert("Delete Tag", isPresented: $showDeleteConfirmation) {

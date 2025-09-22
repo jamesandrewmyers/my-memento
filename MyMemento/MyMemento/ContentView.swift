@@ -385,6 +385,12 @@ struct ContentView: View {
             let notesDir = tempDir.appendingPathComponent("notes")
             try FileManager.default.createDirectory(at: notesDir, withIntermediateDirectories: true)
             
+            exportProgress = 0.25
+            exportStatusMessage = "Exporting shared locations..."
+            
+            // Export shared locations list
+            try await exportSharedLocations(to: tempDir)
+            
             exportProgress = 0.3
             exportStatusMessage = "Encrypting \(notes.count) notes..."
             
@@ -704,6 +710,12 @@ struct ContentView: View {
         try await extractZipFile(from: fileURL, to: tempDir)
         
         importProgress = 0.3
+        importStatusMessage = "Importing shared locations..."
+        
+        // Import shared locations first
+        try await importSharedLocations(from: tempDir)
+        
+        importProgress = 0.35
         importStatusMessage = "Decrypting notes..."
         
         // Find all .memento files in the extracted content
@@ -732,7 +744,7 @@ struct ContentView: View {
         
         for (index, mementoFile) in mementoFiles.enumerated() {
             let noteProgress = Double(index) / totalNotes
-            let overallProgress = 0.4 + (noteProgress * 0.5) // 40% to 90% for note processing
+            let overallProgress = 0.4 + (noteProgress * 0.55) // 40% to 95% for note processing
             importProgress = overallProgress
             
             importStatusMessage = "Importing note \(index + 1) of \(mementoFiles.count)..."
@@ -750,7 +762,7 @@ struct ContentView: View {
             }
         }
         
-        importProgress = 0.9
+        importProgress = 0.95
         importStatusMessage = "Finalizing import..."
         
         // Save context (database constraint will handle uniqueness)
@@ -1156,9 +1168,7 @@ struct ContentView: View {
         }
         
         // Extract required location data
-        guard let locationIdString = locationData["id"] as? String,
-              let locationId = UUID(uuidString: locationIdString),
-              let name = locationData["name"] as? String,
+        guard let name = locationData["name"] as? String,
               let latitude = locationData["latitude"] as? Double,
               let longitude = locationData["longitude"] as? Double else {
             print("Import: Invalid location data in JSON file: \(jsonFile.lastPathComponent)")
@@ -1168,8 +1178,23 @@ struct ContentView: View {
         // Create or find existing location
         let locationManager = LocationManager(context: viewContext, keyManager: KeyManager.shared)
         
-        // Check if location already exists
-        let existingLocation = try locationManager.fetchLocation(by: locationId)
+        // Check if location already exists by name and coordinates (not UUID)
+        let allLocations = try locationManager.fetchAllLocations()
+        let existingLocation = allLocations.first { existingLoc in
+            guard let existingName = existingLoc.name else { return false }
+            
+            // Check name match
+            if existingName != name { return false }
+            
+            // Check coordinate match (within 10 meters)
+            let existingCoord = CLLocationCoordinate2D(latitude: existingLoc.latitude, longitude: existingLoc.longitude)
+            let importCoord = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+            let distance = CLLocation(latitude: existingCoord.latitude, longitude: existingCoord.longitude)
+                .distance(from: CLLocation(latitude: importCoord.latitude, longitude: importCoord.longitude))
+            
+            return distance < 10.0
+        }
+        
         let location: Location
         
         if let existing = existingLocation {
@@ -1177,6 +1202,18 @@ struct ContentView: View {
             location = existing
             print("Import: Using existing location: \(name)")
         } else {
+            // Check if there's a name conflict (same name, different coordinates)
+            var finalName = name
+            if allLocations.contains(where: { $0.name == name }) {
+                // Name conflict - generate unique name
+                var counter = 2
+                while allLocations.contains(where: { $0.name == finalName }) {
+                    finalName = "\(name) (\(counter))"
+                    counter += 1
+                }
+                print("Import: Renaming location '\(name)' to '\(finalName)' due to coordinate mismatch")
+            }
+            
             // Create new location
             let coordinate = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
             let altitude = locationData["altitude"] as? Double
@@ -1201,7 +1238,7 @@ struct ContentView: View {
             }
             
             location = try locationManager.saveLocation(
-                name: name,
+                name: finalName,
                 coordinate: coordinate,
                 placemark: placemark,
                 altitude: altitude,
@@ -1209,8 +1246,7 @@ struct ContentView: View {
                 verticalAccuracy: verticalAccuracy
             )
             
-            // Set the original ID and creation date if available
-            location.id = locationId
+            // Set the creation date if available (use new UUID for imported locations)
             if let createdAtString = locationData["createdAt"] as? String,
                let createdAt = ISO8601DateFormatter().date(from: createdAtString) {
                 location.createdAt = createdAt
@@ -1228,6 +1264,90 @@ struct ContentView: View {
         )
         
         print("Import: Successfully imported location attachment: \(name)")
+    }
+    
+    private func exportSharedLocations(to tempDir: URL) async throws {
+        // Fetch all locations in the shared list
+        let locationManager = LocationManager(context: viewContext, keyManager: KeyManager.shared)
+        let allLocations = try locationManager.fetchAllLocations()
+        
+        guard !allLocations.isEmpty else {
+            print("Export: No shared locations to export")
+            return
+        }
+        
+        var locationsData: [[String: Any]] = []
+        
+        for location in allLocations {
+            var locationData: [String: Any] = [
+                "id": location.id?.uuidString ?? "",
+                "name": location.name ?? "",
+                "latitude": location.latitude,
+                "longitude": location.longitude,
+                "createdAt": ISO8601DateFormatter().string(from: location.createdAt ?? Date())
+            ]
+            
+            // Add optional location properties if they exist
+            if location.altitude != 0 {
+                locationData["altitude"] = location.altitude
+            }
+            if location.horizontalAccuracy != 0 {
+                locationData["horizontalAccuracy"] = location.horizontalAccuracy
+            }
+            if location.verticalAccuracy != 0 {
+                locationData["verticalAccuracy"] = location.verticalAccuracy
+            }
+            
+            // Try to decrypt and include placemark data if available
+            if location.encryptedPlacemarkData != nil {
+                do {
+                    if let placemark = try locationManager.decryptPlacemark(from: location) {
+                        var placemarkData: [String: Any] = [:]
+                        if let thoroughfare = placemark.thoroughfare { placemarkData["thoroughfare"] = thoroughfare }
+                        if let subThoroughfare = placemark.subThoroughfare { placemarkData["subThoroughfare"] = subThoroughfare }
+                        if let locality = placemark.locality { placemarkData["locality"] = locality }
+                        if let administrativeArea = placemark.administrativeArea { placemarkData["administrativeArea"] = administrativeArea }
+                        if let postalCode = placemark.postalCode { placemarkData["postalCode"] = postalCode }
+                        if let country = placemark.country { placemarkData["country"] = country }
+                        if let timeZone = placemark.timeZone { placemarkData["timeZone"] = timeZone }
+                        
+                        if !placemarkData.isEmpty {
+                            locationData["placemark"] = placemarkData
+                        }
+                    }
+                } catch {
+                    print("Export: Failed to decrypt placemark data for location \(location.name ?? "unknown"): \(error.localizedDescription)")
+                    // Continue without placemark data
+                }
+            }
+            
+            locationsData.append(locationData)
+        }
+        
+        // Create shared_locations.json
+        let jsonData = try JSONSerialization.data(withJSONObject: locationsData, options: [.prettyPrinted])
+        let locationsFileURL = tempDir.appendingPathComponent("shared_locations.json")
+        try jsonData.write(to: locationsFileURL)
+        
+        print("Export: Successfully exported \(allLocations.count) shared locations to shared_locations.json")
+    }
+    
+    private func importSharedLocations(from tempDir: URL) async throws {
+        let locationsFileURL = tempDir.appendingPathComponent("shared_locations.json")
+        
+        guard FileManager.default.fileExists(atPath: locationsFileURL.path) else {
+            print("Import: No shared_locations.json found, will import locations through note attachments")
+            return
+        }
+        
+        print("Import: Found shared_locations.json - locations will be imported through note attachments and deduplicated automatically")
+        
+        // NOTE: We now let individual note attachment imports handle creating the shared locations.
+        // This ensures that only locations actually referenced by notes are imported, and the
+        // deduplication logic in importLocationAttachment() will handle conflicts properly.
+        //
+        // The shared_locations.json file serves as documentation of what locations were exported,
+        // but the actual import happens when processing location attachments in notes.
     }
 }
 

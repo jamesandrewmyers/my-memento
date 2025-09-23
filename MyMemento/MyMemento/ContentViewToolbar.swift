@@ -22,6 +22,8 @@ struct ContentViewToolbar: ToolbarContent {
     var body: some ToolbarContent {
         ToolbarItem(placement: .navigationBarLeading) {
             HStack {
+                SettingsButton()
+                
                 Button(action: { showTagList = true }) {
                     Image(systemName: "tag")
                         .foregroundColor(.primary)

@@ -32,7 +32,7 @@ struct MapLocationPickerView: View {
                 VStack {
                 // Address Search Input
                 HStack {
-                    TextField("Search for an address...", text: $addressSearchText)
+                    TextField("Search for places, businesses, or addresses...", text: $addressSearchText)
                         .textFieldStyle(RoundedBorderTextFieldStyle())
                         .onSubmit {
                             searchForAddress()
@@ -210,46 +210,103 @@ struct MapLocationPickerView: View {
         guard !searchText.isEmpty else { return }
         
         isSearching = true
+        
+        // Try MKLocalSearch first for points of interest and businesses
+        searchWithMKLocalSearch(searchText) { [self] success in
+            if !success {
+                // Fall back to geocoding for traditional address searches
+                searchWithGeocoding(searchText)
+            }
+        }
+    }
+    
+    private func searchWithMKLocalSearch(_ searchText: String, completion: @escaping (Bool) -> Void) {
+        let searchRequest = MKLocalSearch.Request()
+        searchRequest.naturalLanguageQuery = searchText
+        
+        // Set search region to current map region for better local results
+        searchRequest.region = region
+        
+        let search = MKLocalSearch(request: searchRequest)
+        search.start { response, error in
+            DispatchQueue.main.async {
+                if let error = error {
+                    print("MKLocalSearch failed: \(error.localizedDescription)")
+                    completion(false)
+                    return
+                }
+                
+                guard let response = response,
+                      let firstItem = response.mapItems.first else {
+                    print("No MKLocalSearch results found")
+                    completion(false)
+                    return
+                }
+                
+                self.handleSearchSuccess(
+                    coordinate: firstItem.placemark.coordinate,
+                    placemark: firstItem.placemark,
+                    searchText: searchText
+                )
+                completion(true)
+            }
+        }
+    }
+    
+    private func searchWithGeocoding(_ searchText: String) {
         let geocoder = CLGeocoder()
         
         geocoder.geocodeAddressString(searchText) { placemarks, error in
             DispatchQueue.main.async {
-                isSearching = false
+                self.isSearching = false
                 
                 if let error = error {
-                    errorMessage = "Address search failed: \(error.localizedDescription)"
+                    self.errorMessage = "Location search failed: \(error.localizedDescription)"
                     return
                 }
                 
                 guard let placemark = placemarks?.first,
                       let location = placemark.location else {
-                    errorMessage = "No results found for '\(searchText)'"
+                    self.errorMessage = "No results found for '\(searchText)'"
                     return
                 }
                 
-                // Center map on the found location with animation
-                let newRegion = MKCoordinateRegion(
-                    center: location.coordinate,
-                    span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+                self.handleSearchSuccess(
+                    coordinate: location.coordinate,
+                    placemark: placemark,
+                    searchText: searchText
                 )
-                withAnimation(.easeInOut(duration: 1.0)) {
-                    region = newRegion
-                    cameraPosition = .region(newRegion)
-                }
-                
-                // Force map refresh after a small delay
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    mapRefreshTrigger.toggle()
-                }
-                
-                // Clear the search text
-                addressSearchText = ""
-                
-                // Optionally auto-select this location
-                // selectedCoordinate = location.coordinate
-                // selectedPlacemark = placemark
             }
         }
+    }
+    
+    private func handleSearchSuccess(coordinate: CLLocationCoordinate2D, placemark: CLPlacemark, searchText: String) {
+        isSearching = false
+        errorMessage = nil
+        
+        // Center map on the found location with animation
+        let newRegion = MKCoordinateRegion(
+            center: coordinate,
+            span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+        )
+        withAnimation(.easeInOut(duration: 1.0)) {
+            region = newRegion
+            cameraPosition = .region(newRegion)
+        }
+        
+        // Auto-select this location
+        selectedCoordinate = coordinate
+        selectedPlacemark = placemark
+        
+        // Force map refresh after a small delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            mapRefreshTrigger.toggle()
+        }
+        
+        // Clear the search text
+        addressSearchText = ""
+        
+        print("Found location: \(placemark.name ?? "Unknown") at \(coordinate)")
     }
     
     private func handleMapTap(at coordinate: CLLocationCoordinate2D, screenLocation: CGPoint) {

@@ -85,10 +85,9 @@ struct LocationDetailView: View {
     }
     
     private var contentView: some View {
-        VStack(spacing: 0) {
-            // Location Summary Card with Interactive Map
+        ScrollView {
             VStack(spacing: 0) {
-                // Address Search Input
+                // Address Search Input - Fixed at top
                 HStack {
                     TextField("Search for places, businesses, or addresses...", text: $addressSearchText)
                         .textFieldStyle(RoundedBorderTextFieldStyle())
@@ -111,101 +110,104 @@ struct LocationDetailView: View {
                 .background(Color(.systemBackground))
                 
                 // Interactive Map View
-                ZStack {
-                    if #available(iOS 17.0, *) {
-                        Map(position: $cameraPosition) {
-                            Marker("", coordinate: CLLocationCoordinate2D(latitude: location.latitude, longitude: location.longitude))
-                                .tint(.blue)
+                VStack(spacing: 0) {
+                    ZStack {
+                        if #available(iOS 17.0, *) {
+                            Map(position: $cameraPosition) {
+                                Marker("", coordinate: CLLocationCoordinate2D(latitude: location.latitude, longitude: location.longitude))
+                                    .tint(.blue)
+                            }
+                            .onMapCameraChange { context in
+                                // Update region when camera changes
+                                region = context.region
+                            }
+                            .onTapGesture(coordinateSpace: .local) { screenLocation in
+                                handleMapTap(screenLocation: screenLocation)
+                            }
+                            .id(mapRefreshTrigger)
+                        } else {
+                            Map(coordinateRegion: $region, annotationItems: [LocationDetailMapAnnotation(coordinate: CLLocationCoordinate2D(latitude: location.latitude, longitude: location.longitude))]) { annotation in
+                                MapPin(coordinate: annotation.coordinate, tint: .blue)
+                            }
+                            .onTapGesture { screenLocation in
+                                handleMapTap(screenLocation: screenLocation)
+                            }
+                            .id(mapRefreshTrigger)
                         }
-                        .onMapCameraChange { context in
-                            // Update region when camera changes
-                            region = context.region
-                        }
-                        .onTapGesture(coordinateSpace: .local) { screenLocation in
-                            handleMapTap(screenLocation: screenLocation)
-                        }
-                        .id(mapRefreshTrigger)
-                    } else {
-                        Map(coordinateRegion: $region, annotationItems: [LocationDetailMapAnnotation(coordinate: CLLocationCoordinate2D(latitude: location.latitude, longitude: location.longitude))]) { annotation in
-                            MapPin(coordinate: annotation.coordinate, tint: .blue)
-                        }
-                        .onTapGesture { screenLocation in
-                            handleMapTap(screenLocation: screenLocation)
-                        }
-                        .id(mapRefreshTrigger)
-                    }
-                    
-                    // Crosshair overlay to show tap target
-                    if selectedCoordinate != nil {
-                        VStack {
-                            Spacer()
-                            HStack {
+                        
+                        // Crosshair overlay to show tap target
+                        if selectedCoordinate != nil {
+                            VStack {
                                 Spacer()
-                                Text("Tap to change location")
-                                    .font(.caption)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(Color.black.opacity(0.7))
-                                    .foregroundColor(.white)
-                                    .cornerRadius(4)
-                                    .padding(.trailing)
-                                    .padding(.bottom, 8)
+                                HStack {
+                                    Spacer()
+                                    Text("Tap to change location")
+                                        .font(.caption)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(Color.black.opacity(0.7))
+                                        .foregroundColor(.white)
+                                        .cornerRadius(4)
+                                        .padding(.trailing)
+                                        .padding(.bottom, 8)
+                                }
                             }
                         }
                     }
-                }
-                .frame(height: 250)
-                
-                // Location Info Summary
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        Image(systemName: "location.fill")
-                            .foregroundColor(.blue)
-                            .font(.title3)
-                        
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(displayLocationName)
-                                .font(.headline)
-                                .fontWeight(.semibold)
+                    .frame(height: 250)
+                    
+                    // Location Info Summary
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Image(systemName: "location.fill")
+                                .foregroundColor(.blue)
+                                .font(.title3)
                             
-                            if isLoadingAddress {
-                                HStack {
-                                    ProgressView()
-                                        .scaleEffect(0.7)
-                                    Text("Loading address...")
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(displayLocationName)
+                                    .font(.headline)
+                                    .fontWeight(.semibold)
+                                
+                                if isLoadingAddress {
+                                    HStack {
+                                        ProgressView()
+                                            .scaleEffect(0.7)
+                                        Text("Loading address...")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+                                } else {
+                                    Text(formattedAddress)
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                 }
-                            } else {
-                                Text(formattedAddress)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
                             }
+                            
+                            Spacer()
+                            
+                            Text("\(notesWithLocation.count) note\(notesWithLocation.count == 1 ? "" : "s")")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
                         }
-                        
-                        Spacer()
-                        
-                        Text("\(notesWithLocation.count) note\(notesWithLocation.count == 1 ? "" : "s")")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
                     }
+                    .padding()
+                    .background(Color(.systemBackground))
                 }
-                .padding()
                 .background(Color(.systemBackground))
+                .cornerRadius(12)
+                .shadow(radius: 2)
+                .padding()
+                
+                // Notes List with full functionality
+                NoteListWithFiltersView.readOnly(
+                    allIndices: notesWithLocation,
+                    navigationTitle: "Notes with this location",
+                    showSearch: true,
+                    showSort: true
+                )
             }
-            .background(Color(.systemBackground))
-            .cornerRadius(12)
-            .shadow(radius: 2)
-            .padding()
-            
-            // Notes List with full functionality
-            NoteListWithFiltersView.readOnly(
-                allIndices: notesWithLocation,
-                navigationTitle: "Notes with this location",
-                showSearch: true,
-                showSort: true
-            )
         }
+        .scrollDismissesKeyboard(.interactively)
         .navigationTitle("Location Details")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

@@ -20,51 +20,72 @@ struct ContentViewToolbar: ToolbarContent {
     var onAddNote: () -> Void
 
     var body: some ToolbarContent {
-        ToolbarItem(placement: .navigationBarLeading) {
-            HStack {
+        ToolbarItem(placement: .principal) {
+            HStack(spacing: 0) {
+                // Left group
+                HStack(spacing: 2) {
+                    Button(action: { showTagList = true }) {
+                        Image(systemName: "tag")
+                            .foregroundColor(.primary)
+                            .frame(width: 24, height: 24)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    
+                    Button(action: { showLocationManagement = true }) {
+                        Image(systemName: "location")
+                            .foregroundColor(.primary)
+                            .frame(width: 24, height: 24)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+                
+                Spacer(minLength: 0)
+                
+                // Center
                 SettingsButton()
                 
-                Button(action: { showTagList = true }) {
-                    Image(systemName: "tag")
-                        .foregroundColor(.primary)
-                }
+                Spacer(minLength: 0)
                 
-                Button(action: { showLocationManagement = true }) {
-                    Image(systemName: "location")
-                        .foregroundColor(.primary)
+                // Right group
+                HStack(spacing: 2) {
+                    Button(action: { showImportPicker = true }) {
+                        if isImporting {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                                .frame(width: 24, height: 24)
+                        } else {
+                            Image(systemName: "square.and.arrow.down")
+                                .foregroundColor(.primary)
+                                .frame(width: 24, height: 24)
+                        }
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .disabled(isExporting || isImporting)
+                    
+                    Button(action: { showExportDialog = true }) {
+                        if isExporting {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                                .frame(width: 24, height: 24)
+                        } else {
+                            Image(systemName: "square.and.arrow.up")
+                                .foregroundColor(.primary)
+                                .frame(width: 24, height: 24)
+                        }
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .disabled(isExporting || isImporting)
+                    
+                    Button(action: onAddNote) {
+                        Image(systemName: "plus")
+                            .foregroundColor(.primary)
+                            .frame(width: 24, height: 24)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .disabled(isExporting || isImporting)
                 }
             }
-        }
-        
-        ToolbarItem(placement: .navigationBarTrailing) {
-            HStack {
-                Button(action: { showImportPicker = true }) {
-                    if isImporting {
-                        ProgressView()
-                            .scaleEffect(0.8)
-                    } else {
-                        Image(systemName: "square.and.arrow.down")
-                            .foregroundColor(.primary)
-                    }
-                }
-                .disabled(isExporting || isImporting)
-                
-                Button(action: { showExportDialog = true }) {
-                    if isExporting {
-                        ProgressView()
-                            .scaleEffect(0.8)
-                    } else {
-                        Image(systemName: "square.and.arrow.up")
-                            .foregroundColor(.primary)
-                    }
-                }
-                .disabled(isExporting || isImporting)
-                
-                Button(action: onAddNote) {
-                    Image(systemName: "plus")
-                }
-                .disabled(isExporting || isImporting)
-            }
+            .frame(maxWidth: .infinity)
         }
     }
 }

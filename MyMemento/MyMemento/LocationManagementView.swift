@@ -34,6 +34,16 @@ struct LocationManagementView: View {
     var body: some View {
         NavigationView {
             VStack {
+                // Title
+                HStack {
+                    Text("Manage Locations")
+                        .font(.largeTitle)
+                        .fontWeight(.bold)
+                    Spacer()
+                }
+                .padding(.horizontal)
+                .padding(.top)
+                
                 // Search input
                 HStack {
                     Image(systemName: "magnifyingglass")
@@ -80,13 +90,17 @@ struct LocationManagementView: View {
                     }
                 }
             }
-            .navigationTitle("Manage Locations")
+            .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Done") {
                         dismiss()
                     }
+                }
+                
+                ToolbarItem(placement: .principal) {
+                    SettingsButton()
                 }
             }
             .onAppear {

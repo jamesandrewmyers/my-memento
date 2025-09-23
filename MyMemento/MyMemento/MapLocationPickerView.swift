@@ -25,6 +25,7 @@ struct MapLocationPickerView: View {
     @State private var addressSearchText = ""
     @State private var isSearching = false
     @State private var mapRefreshTrigger = false
+    @StateObject private var simpleLocationManager = SimpleLocationManager()
     
     var body: some View {
         NavigationView {
@@ -162,7 +163,17 @@ struct MapLocationPickerView: View {
         }
         .onAppear {
             setupLocationManager()
-            requestUserLocation()
+            simpleLocationManager.requestLocationPermission()
+        }
+        .onChange(of: simpleLocationManager.currentLocation) { _, newLocation in
+            if let location = newLocation {
+                let newRegion = MKCoordinateRegion(
+                    center: location.coordinate,
+                    span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
+                )
+                region = newRegion
+                cameraPosition = .region(newRegion)
+            }
         }
         .alert("Name This Location", isPresented: $showingNameDialog) {
             TextField("Enter location name", text: $locationName)
@@ -191,19 +202,6 @@ struct MapLocationPickerView: View {
         locationManager = LocationManager(context: viewContext, keyManager: KeyManager.shared)
     }
     
-    private func requestUserLocation() {
-        let locationManager = CLLocationManager()
-        locationManager.requestWhenInUseAuthorization()
-        
-        if let userLocation = locationManager.location {
-            let newRegion = MKCoordinateRegion(
-                center: userLocation.coordinate,
-                span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
-            )
-            region = newRegion
-            cameraPosition = .region(newRegion)
-        }
-    }
     
     private func searchForAddress() {
         let searchText = addressSearchText.trimmingCharacters(in: .whitespacesAndNewlines)

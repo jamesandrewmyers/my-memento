@@ -15,6 +15,7 @@ struct LocationPickerView: View {
     @State private var locationManager: LocationManager?
     @State private var showingMapPicker = false
     @State private var selectedLocationForDetail: Location?
+    @StateObject private var simpleLocationManager = SimpleLocationManager()
     
     var body: some View {
         NavigationView {
@@ -26,6 +27,7 @@ struct LocationPickerView: View {
                     VStack(spacing: 16) {
                         // Find Location option
                         Button(action: {
+                            simpleLocationManager.requestLocationPermission()
                             showingMapPicker = true
                         }) {
                             HStack {
@@ -74,6 +76,7 @@ struct LocationPickerView: View {
                     List {
                         // Find Location option at the top
                         Button(action: {
+                            simpleLocationManager.requestLocationPermission()
                             showingMapPicker = true
                         }) {
                             HStack {
@@ -184,6 +187,7 @@ struct LocationPickerView: View {
             }
         }
     }
+    
 }
 
 struct LocationRow: View {
@@ -265,8 +269,6 @@ struct LocationRow: View {
         }
     }
 }
-
-
 
 #Preview {
     LocationPickerView(

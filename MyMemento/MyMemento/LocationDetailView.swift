@@ -22,6 +22,7 @@ struct LocationDetailView: View {
     @State private var showLocationChangeDialog = false
     @State private var newLocationName = ""
     @State private var mapRefreshTrigger = false
+    @State private var displayLocationName: String = ""
     
     init(location: Location, viewContext: NSManagedObjectContext, onLocationSelected: @escaping (Location) -> Void) {
         self.location = location
@@ -62,12 +63,13 @@ struct LocationDetailView: View {
             }
         }
         .onAppear {
+            displayLocationName = location.name ?? "Unnamed Location"
             setupLocationManager()
             loadFormattedAddress()
             loadNotesWithLocation()
         }
         .alert("Change Location", isPresented: $showLocationChangeDialog) {
-            Button("Keep \"\(location.name ?? "Current")\"") {
+            Button("Keep \"\(displayLocationName)\"") {
                 updateLocationCoordinates(keepCurrentLabel: true)
             }
             Button("Change") {
@@ -78,7 +80,7 @@ struct LocationDetailView: View {
                 selectedPlacemark = nil
             }
         } message: {
-            Text("Current Label: \(location.name ?? "Unnamed")\n\nNew Address: \(newLocationName)\n\n\"Keep\" preserves the current label with new coordinates. \"Change\" updates both label and coordinates.")
+            Text("Current Label: \(displayLocationName)\n\nNew Address: \(newLocationName)\n\n\"Keep\" preserves the current label with new coordinates. \"Change\" updates both label and coordinates.")
         }
     }
     
@@ -162,7 +164,7 @@ struct LocationDetailView: View {
                             .font(.title3)
                         
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(location.name ?? "Unnamed Location")
+                            Text(displayLocationName)
                                 .font(.headline)
                                 .fontWeight(.semibold)
                             
@@ -403,6 +405,7 @@ struct LocationDetailView: View {
                     let trimmedName = newLocationName.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !trimmedName.isEmpty {
                         try locationManager.updateLocationName(location, to: trimmedName)
+                        print("DEBUG: Updated location name to: \(trimmedName)")
                     }
                 }
                 
@@ -429,6 +432,9 @@ struct LocationDetailView: View {
                 
                 try viewContext.save()
                 
+                // Refresh the Core Data object to ensure we have the latest data
+                viewContext.refresh(location, mergeChanges: true)
+                
                 await MainActor.run {
                     // Update the view's region and camera to the new location
                     let newRegion = MKCoordinateRegion(
@@ -438,7 +444,16 @@ struct LocationDetailView: View {
                     self.region = newRegion
                     self.cameraPosition = .region(newRegion)
                     
-                    // Refresh UI
+                    // Refresh UI and update displayed name
+                    if !keepCurrentLabel {
+                        // Directly use the new name we just set
+                        let trimmedName = self.newLocationName.trimmingCharacters(in: .whitespacesAndNewlines)
+                        self.displayLocationName = trimmedName.isEmpty ? "Unnamed Location" : trimmedName
+                        print("DEBUG: Display name updated to: \(self.displayLocationName)")
+                    } else {
+                        // Keep the current display name
+                        print("DEBUG: Keeping current display name: \(self.displayLocationName)")
+                    }
                     loadFormattedAddress()
                     mapRefreshTrigger.toggle()
                     

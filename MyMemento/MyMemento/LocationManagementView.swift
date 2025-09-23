@@ -19,6 +19,7 @@ struct LocationManagementView: View {
     @State private var deleteWarningMessage = ""
     @State private var isLoading = true
     @State private var selectedLocationForDetail: Location?
+    @State private var refreshTrigger = false
     
     var filteredLocations: [Location] {
         if searchText.isEmpty {
@@ -70,6 +71,7 @@ struct LocationManagementView: View {
                     List {
                         ForEach(filteredLocations, id: \.id) { location in
                             LocationRowView(location: location)
+                                .id("\(location.id?.uuidString ?? "")-\(refreshTrigger)")
                                 .onTapGesture {
                                     selectedLocationForDetail = location
                                 }
@@ -108,6 +110,10 @@ struct LocationManagementView: View {
                         selectedLocationForDetail = nil
                     }
                 )
+                .onDisappear {
+                    // Force UI refresh by toggling the refresh trigger
+                    refreshTrigger.toggle()
+                }
             }
         }
     }

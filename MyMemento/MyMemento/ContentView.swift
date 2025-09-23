@@ -52,21 +52,9 @@ struct ContentView: View {
 
     var body: some View {
         NavigationStack(path: $navigationPath) {
-            NoteListWithFiltersView.full(
-                allIndices: noteIndexViewModel.indexPayloads,
-                navigationTitle: "Notes",
-                onTogglePin: togglePinForIndex,
-                onDelete: deleteNoteFromIndex,
-                onDeleteIndices: deleteIndices
-            )
-            .navigationDestination(for: IndexPayload.self) { indexPayload in
-                NoteEditView(indexPayload: indexPayload)
-                    .onDisappear {
-                        noteIndexViewModel.refreshIndex(from: viewContext)
-                    }
-            }
-            .toolbar {
-                ContentViewToolbar(
+            VStack(spacing: 0) {
+                // Custom toolbar
+                CustomToolbarView(
                     showTagList: $showTagList,
                     showLocationManagement: $showLocationManagement,
                     showImportPicker: $showImportPicker,
@@ -75,6 +63,24 @@ struct ContentView: View {
                     isExporting: isExporting,
                     onAddNote: addNote
                 )
+                .background(Color(UIColor.systemBackground))
+                .shadow(color: .black.opacity(0.1), radius: 1, y: 1)
+                
+                // Main content
+                NoteListWithFiltersView.full(
+                    allIndices: noteIndexViewModel.indexPayloads,
+                    navigationTitle: "Notes",
+                    onTogglePin: togglePinForIndex,
+                    onDelete: deleteNoteFromIndex,
+                    onDeleteIndices: deleteIndices
+                )
+            }
+            .navigationBarHidden(true)
+            .navigationDestination(for: IndexPayload.self) { indexPayload in
+                NoteEditView(indexPayload: indexPayload)
+                    .onDisappear {
+                        noteIndexViewModel.refreshIndex(from: viewContext)
+                    }
             }
             .sheet(isPresented: $showTagList) {
                 TagBrowserView()

@@ -24,6 +24,7 @@ struct TagBrowserView: View {
     @State private var lastSearchTextAfterSelection = ""
     @State private var tagToDelete: String?
     @State private var showDeleteConfirmation = false
+    @State private var showSettings = false
 
     private var allTags: [String] {
         return TagManager.extractTagsFromIndex(noteIndexViewModel.indexPayloads)
@@ -135,6 +136,13 @@ struct TagBrowserView: View {
                     ToolbarItem(placement: .navigationBarLeading) {
                         Button("Done") { dismiss() }
                     }
+                    
+                    ToolbarItem(placement: .principal) {
+                        Button(action: { showSettings = true }) {
+                            Image(systemName: "gearshape")
+                                .foregroundColor(.primary)
+                        }
+                    }
                 }
             }
             .navigationDestination(for: String.self) { tagName in
@@ -159,6 +167,9 @@ struct TagBrowserView: View {
         .alert(errorManager.dialogType == .error ? "Error" : "Success", isPresented: $errorManager.showError) {
             Button("OK") { }
         } message: { Text(errorManager.errorMessage) }
+        .sheet(isPresented: $showSettings) {
+            SettingsView()
+        }
     }
 
     // MARK: - Helpers

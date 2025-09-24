@@ -20,6 +20,7 @@ struct LocationManagementView: View {
     @State private var isLoading = true
     @State private var selectedLocationForDetail: Location?
     @State private var refreshTrigger = false
+    @State private var showSettings = false
     
     var filteredLocations: [Location] {
         if searchText.isEmpty {
@@ -100,7 +101,10 @@ struct LocationManagementView: View {
                 }
                 
                 ToolbarItem(placement: .principal) {
-                    SettingsButton()
+                    Button(action: { showSettings = true }) {
+                        Image(systemName: "gearshape")
+                            .foregroundColor(.primary)
+                    }
                 }
             }
             .onAppear {
@@ -128,6 +132,9 @@ struct LocationManagementView: View {
                     // Force UI refresh by toggling the refresh trigger
                     refreshTrigger.toggle()
                 }
+            }
+            .sheet(isPresented: $showSettings) {
+                SettingsView()
             }
         }
     }

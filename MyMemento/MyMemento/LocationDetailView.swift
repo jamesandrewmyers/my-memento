@@ -85,8 +85,29 @@ struct LocationDetailView: View {
     }
     
     private var contentView: some View {
-        ScrollView {
-            VStack(spacing: 0) {
+        VStack(spacing: 0) {
+            // Custom toolbar
+            LocationDetailToolbarView(
+                onCancel: { dismiss() },
+                onSelect: { 
+                    onLocationSelected(location)
+                    dismiss()
+                }
+            )
+            .background(Color(UIColor.systemBackground))
+            .shadow(color: .black.opacity(0.1), radius: 1, y: 1)
+            
+            ScrollView {
+                VStack(spacing: 0) {
+                    // Title
+                    HStack {
+                        Text("Location Details")
+                            .font(.largeTitle)
+                            .fontWeight(.bold)
+                        Spacer()
+                    }
+                    .padding(.horizontal)
+                    .padding(.top)
                 // Address Search Input - Fixed at top
                 HStack {
                     TextField("Search for places, businesses, or addresses...", text: $addressSearchText)
@@ -206,24 +227,10 @@ struct LocationDetailView: View {
                     showSort: true
                 )
             }
-        }
-        .scrollDismissesKeyboard(.interactively)
-        .navigationTitle("Location Details")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
-                Button("Cancel") {
-                    dismiss()
-                }
             }
-            
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button("Select") {
-                    onLocationSelected(location)
-                    dismiss()
-                }
-            }
+            .scrollDismissesKeyboard(.interactively)
         }
+        .navigationBarHidden(true)
     }
     
     private func setupLocationManager() {

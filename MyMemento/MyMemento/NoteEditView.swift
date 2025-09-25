@@ -62,7 +62,22 @@ struct NoteEditView: View {
     @State private var selectedLocationForDetail: Location?
     
     var body: some View {
-        Form {
+        VStack(spacing: 0) {
+            // Custom toolbar
+            NoteEditToolbarView(
+                note: note,
+                onCancel: { dismiss() },
+                onTogglePin: togglePin,
+                onExportHTML: exportNoteAndPresentShare,
+                onExportLocalKey: exportNoteWithLocalKeyAndPresentShare,
+                onExportEncrypted: { showEncryptedExport = true },
+                onSave: saveNote
+            )
+            .background(Color(UIColor.systemBackground))
+            .shadow(color: .black.opacity(0.1), radius: 1, y: 1)
+            
+            // Main content
+            Form {
             Section(header: Text("Note Details")) {
                 TextField("Title", text: $title)
                     .font(.headline)
@@ -188,45 +203,9 @@ struct NoteEditView: View {
                 }
             }
             .id(attachmentsRefreshID)
-        }
-        .navigationTitle("Edit Note")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
-                Button("Cancel") {
-                    dismiss()
-                }
-            }
-            
-            ToolbarItem(placement: .principal) {
-                Button(action: togglePin) {
-                    Image(systemName: note?.isPinned == true ? "pin.slash" : "pin")
-                        .foregroundColor(note?.isPinned == true ? .orange : .gray)
-                }
-            }
-            
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Menu {
-                    Button(action: exportNoteAndPresentShare) {
-                        Label("Export as HTML", systemImage: "doc.text")
-                    }
-                    Button(action: exportNoteWithLocalKeyAndPresentShare) {
-                        Label("Export (Local Key)", systemImage: "lock.app.dashed")
-                    }
-                    Button(action: { showEncryptedExport = true }) {
-                        Label("Encrypted Export", systemImage: "lock.doc")
-                    }
-                } label: {
-                    Image(systemName: "square.and.arrow.up")
-                }
-            }
-            
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button("Save") {
-                    saveNote()
-                }
             }
         }
+        .navigationBarHidden(true)
         .onAppear {
             loadNoteData()
         }

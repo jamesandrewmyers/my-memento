@@ -92,4 +92,12 @@ class ErrorManager: ObservableObject {
         let message = context.isEmpty ? nsError.localizedDescription : "\(context): \(nsError.localizedDescription)"
         logger.error("(non-critical) \(message)")
     }
+    
+    /// Dismisses the current error dialog
+    func dismissError() {
+        DispatchQueue.main.async {
+            self.showError = false
+            self.errorMessage = ""
+        }
+    }
 }

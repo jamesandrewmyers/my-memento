@@ -14,11 +14,22 @@ import AVFoundation
 import PhotosUI
 import CryptoKit
 
+enum ValidationError: LocalizedError {
+    case titleRequired
+    
+    var errorDescription: String? {
+        switch self {
+        case .titleRequired:
+            return "Title is required"
+        }
+    }
+}
+
 struct NoteEditView: View {
     @Environment(\.managedObjectContext) private var viewContext
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var noteIndexViewModel: NoteIndexViewModel
-    @StateObject private var errorManager = ErrorManager.shared
+    @ObservedObject private var errorManager = ErrorManager.shared
     
     let indexPayload: IndexPayload
     @State private var note: Note?
@@ -60,6 +71,10 @@ struct NoteEditView: View {
     @State private var showVoiceRecorder = false
     @State private var showLocationPicker = false
     @State private var selectedLocationForDetail: Location?
+    
+    // Local validation alert state
+    @State private var showValidationAlert = false
+    @State private var validationMessage = ""
     
     var body: some View {
         VStack(spacing: 0) {
@@ -220,9 +235,18 @@ struct NoteEditView: View {
             }
         }
         .alert(errorManager.dialogType == .error ? "Error" : "Success", isPresented: $errorManager.showError) {
-            Button("OK") { }
+            Button("OK") {
+                errorManager.dismissError()
+            }
         } message: {
             Text(errorManager.errorMessage)
+        }
+        .alert("Title Required", isPresented: $showValidationAlert) {
+            Button("OK") {
+                showValidationAlert = false
+            }
+        } message: {
+            Text(validationMessage)
         }
         .sheet(isPresented: $showLinkDialog) {
             NavigationView {
@@ -430,11 +454,19 @@ struct NoteEditView: View {
     
     private func saveNote() {
         // Capture current state immediately
-        let currentTitle = title
+        let currentTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let currentTags = tags
         let currentNoteBody = noteBody
         let currentChecklist = checklistItems
         guard let noteToSave = note else { return }
+        
+        // Validate that title is not empty
+        guard !currentTitle.isEmpty else {
+            // Use local alert state to avoid presentation conflicts
+            validationMessage = "Please add a title before saving the note"
+            showValidationAlert = true
+            return
+        }
         
         // Perform save operation completely async
         DispatchQueue.global(qos: .userInitiated).async {

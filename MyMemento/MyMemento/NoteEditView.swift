@@ -89,6 +89,7 @@ struct NoteEditView: View {
             Section(header: contentHeader) {
                 if note is ChecklistNote {
                     ChecklistEditor(items: $checklistItems)
+                        .frame(minHeight: 250, maxHeight: .infinity)
                 } else {
                     if #available(iOS 15.0, *) {
                         RichTextEditorWrapper(
@@ -2046,36 +2047,38 @@ private struct ChecklistEditor: View {
                     .foregroundColor(.secondary)
                     .padding(.vertical, 8)
             } else {
-                // Use LazyVStack instead of List for better control over spacing
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(sortedItems.indices, id: \.self) { sortedIndex in
-                        let sortedItem = sortedItems[sortedIndex]
-                        if let originalIndex = items.firstIndex(where: { $0.id == sortedItem.id }) {
-                            HStack(spacing: 12) {
-                                Button(action: { 
-                                    items[originalIndex].isChecked.toggle()
-                                }) {
-                                    Image(systemName: items[originalIndex].isChecked ? "checkmark.circle.fill" : "circle")
-                                        .foregroundColor(items[originalIndex].isChecked ? .green : .gray)
-                                        .font(.system(size: 20))
-                                }
-                                .buttonStyle(.plain)
+                // Wrap checklist items in ScrollView for proper scrollability
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(sortedItems.indices, id: \.self) { sortedIndex in
+                            let sortedItem = sortedItems[sortedIndex]
+                            if let originalIndex = items.firstIndex(where: { $0.id == sortedItem.id }) {
+                                HStack(spacing: 12) {
+                                    Button(action: { 
+                                        items[originalIndex].isChecked.toggle()
+                                    }) {
+                                        Image(systemName: items[originalIndex].isChecked ? "checkmark.circle.fill" : "circle")
+                                            .foregroundColor(items[originalIndex].isChecked ? .green : .gray)
+                                            .font(.system(size: 20))
+                                    }
+                                    .buttonStyle(.plain)
 
-                                TextField("List item", text: $items[originalIndex].text)
-                                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                                    .font(.body)
-                            }
-                            .padding(.vertical, 6)
-                            .background(Color.clear)
-                            .contextMenu {
-                                Button("Delete", role: .destructive) {
-                                    items.remove(at: originalIndex)
+                                    TextField("List item", text: $items[originalIndex].text)
+                                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                                        .font(.body)
+                                }
+                                .padding(.vertical, 6)
+                                .background(Color.clear)
+                                .contextMenu {
+                                    Button("Delete", role: .destructive) {
+                                        items.remove(at: originalIndex)
+                                    }
                                 }
                             }
                         }
                     }
+                    .padding(.bottom, 8)
                 }
-                .background(Color.clear)
             }
             
             // Add new item section
@@ -2102,10 +2105,7 @@ private struct ChecklistEditor: View {
                     .disabled(newItemText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
-            
-            Spacer()
         }
-        .frame(minHeight: 200, alignment: .top)
     }
     
     private func addNewItem() {

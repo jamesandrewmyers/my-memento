@@ -2066,14 +2066,18 @@ private struct ChecklistEditor: View {
                                     TextField("List item", text: $items[originalIndex].text)
                                         .textFieldStyle(RoundedBorderTextFieldStyle())
                                         .font(.body)
+                                    
+                                    Button(action: {
+                                        items.remove(at: originalIndex)
+                                    }) {
+                                        Image(systemName: "trash")
+                                            .foregroundColor(.red)
+                                            .font(.system(size: 16))
+                                    }
+                                    .buttonStyle(.plain)
                                 }
                                 .padding(.vertical, 6)
                                 .background(Color.clear)
-                                .contextMenu {
-                                    Button("Delete", role: .destructive) {
-                                        items.remove(at: originalIndex)
-                                    }
-                                }
                             }
                         }
                     }

@@ -2078,6 +2078,8 @@ private struct ChecklistEditor: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .padding(.vertical, 8)
+                
+                Spacer()
             } else {
                 // Wrap checklist items in ScrollView for proper scrollability
                 ScrollView {

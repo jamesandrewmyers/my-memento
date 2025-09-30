@@ -25,13 +25,25 @@ struct MapLocationPickerView: View {
     @State private var addressSearchText = ""
     @State private var isSearching = false
     @State private var mapRefreshTrigger = false
+    @State private var showSettings = false
     @StateObject private var simpleLocationManager = SimpleLocationManager()
     
     var body: some View {
         NavigationView {
-            ScrollView {
-                VStack {
-                // Address Search Input
+            VStack(spacing: 0) {
+                // Title
+                HStack {
+                    Text("Select Location")
+                        .font(.largeTitle)
+                        .fontWeight(.bold)
+                    Spacer()
+                }
+                .padding(.horizontal)
+                .padding(.top)
+                
+                ScrollView {
+                    VStack {
+                    // Address Search Input
                 HStack {
                     TextField("Search for places, businesses, or addresses...", text: $addressSearchText)
                         .textFieldStyle(RoundedBorderTextFieldStyle())
@@ -141,13 +153,21 @@ struct MapLocationPickerView: View {
                 .padding()
                 }
             }
+            }
             .scrollDismissesKeyboard(.interactively)
-            .navigationTitle("Select Location")
+            .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") {
                         dismiss()
+                    }
+                }
+                
+                ToolbarItem(placement: .principal) {
+                    Button(action: { showSettings = true }) {
+                        Image(systemName: "gearshape")
+                            .foregroundColor(.primary)
                     }
                 }
                 
@@ -195,6 +215,9 @@ struct MapLocationPickerView: View {
             if let errorMessage = errorMessage {
                 Text(errorMessage)
             }
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsView()
         }
     }
     

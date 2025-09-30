@@ -15,11 +15,22 @@ struct LocationPickerView: View {
     @State private var locationManager: LocationManager?
     @State private var showingMapPicker = false
     @State private var selectedLocationForDetail: Location?
+    @State private var showSettings = false
     @StateObject private var simpleLocationManager = SimpleLocationManager()
     
     var body: some View {
         NavigationView {
-            VStack {
+            VStack(spacing: 0) {
+                // Title
+                HStack {
+                    Text("Select Location")
+                        .font(.largeTitle)
+                        .fontWeight(.bold)
+                    Spacer()
+                }
+                .padding(.horizontal)
+                .padding(.top)
+                
                 if isLoading {
                     ProgressView("Loading locations...")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -73,6 +84,20 @@ struct LocationPickerView: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
+                    // Search input
+                    HStack {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundColor(.gray)
+                        
+                        TextField("Search locations...", text: $searchText)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .onChange(of: searchText) { _, newValue in
+                                filterLocations()
+                            }
+                    }
+                    .padding(.horizontal)
+                    .padding(.top)
+                    
                     List {
                         // Find Location option at the top
                         Button(action: {
@@ -111,18 +136,21 @@ struct LocationPickerView: View {
                             }
                         }
                     }
-                    .searchable(text: $searchText, prompt: "Search locations...")
-                    .onChange(of: searchText) { _, newValue in
-                        filterLocations()
-                    }
                 }
             }
-            .navigationTitle("Select Location")
+            .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") {
                         dismiss()
+                    }
+                }
+                
+                ToolbarItem(placement: .principal) {
+                    Button(action: { showSettings = true }) {
+                        Image(systemName: "gearshape")
+                            .foregroundColor(.primary)
                     }
                 }
             }
@@ -147,6 +175,9 @@ struct LocationPickerView: View {
                 onLocationSelected(selectedLocation)
                 dismiss()
             }
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsView()
         }
         .onAppear {
             setupLocationManager()

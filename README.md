@@ -1,4 +1,4 @@
-# MyMemento
+# MyMemento / Mementoculous
 
 An **offline-first personal knowledge vault** built for iOS.  
 MyMemento helps you capture, organize, and revisit your thoughts — even without an internet connection.

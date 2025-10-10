@@ -96,15 +96,24 @@ struct NoteEditView: View {
             Section(header: Text("Note Details")) {
                 TextField("Title", text: $title)
                     .font(.headline)
+                    .onSubmit {
+                        autoSave()
+                    }
                 
                 TextField("Tags", text: $tags)
                     .font(.subheadline)
+                    .onSubmit {
+                        autoSave()
+                    }
             }
             
             Section(header: contentHeader) {
                 if note is ChecklistNote {
                     ChecklistEditor(items: $checklistItems)
                         .frame(minHeight: 250, maxHeight: .infinity)
+                        .onChange(of: checklistItems) { oldValue, newValue in
+                            autoSave()
+                        }
                 } else {
                     if #available(iOS 15.0, *) {
                         RichTextEditorWrapper(
@@ -121,6 +130,9 @@ struct NoteEditView: View {
                             isH3: $isH3
                         )
                         .frame(minHeight: 200)
+                        .onChange(of: noteBody) { oldValue, newValue in
+                            autoSave()
+                        }
                     } else {
                         Text("Rich text editor requires iOS 15.0+")
                     }
@@ -450,6 +462,122 @@ struct NoteEditView: View {
         }
         
         return tagSet
+    }
+    
+    private func autoSave() {
+        let currentTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let currentTags = tags
+        let currentNoteBody = noteBody
+        let currentChecklist = checklistItems
+        guard let noteToSave = note else { return }
+        
+        guard !currentTitle.isEmpty else { return }
+        
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let encryptionKey = try KeyManager.shared.getEncryptionKey()
+                let tagNames = currentTags.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+                let now = Date()
+                
+                let contentForEncryption: NSAttributedString = {
+                    if let _ = noteToSave as? ChecklistNote {
+                        let text = currentChecklist
+                            .map { ($0.isChecked ? "[x] " : "[ ] ") + $0.text }
+                            .joined(separator: "\n")
+                        return NSAttributedString(string: text)
+                    } else {
+                        return currentNoteBody
+                    }
+                }()
+                
+                let notePayload = NotePayload(
+                    title: currentTitle,
+                    body: NSAttributedStringWrapper(contentForEncryption),
+                    tags: tagNames,
+                    createdAt: noteToSave.createdAt ?? now,
+                    updatedAt: now,
+                    pinned: noteToSave.isPinned
+                )
+                
+                let encryptedNoteData = try CryptoHelper.encrypt(notePayload, key: encryptionKey)
+                let summaryBase = contentForEncryption.string
+                let summary = summaryBase.prefix(100).trimmingCharacters(in: .whitespacesAndNewlines)
+                
+                DispatchQueue.main.async {
+                    do {
+                        NoteIDManager.ensureNoteHasID(noteToSave)
+                        noteToSave.encryptedData = encryptedNoteData
+                        
+                        if let checklistNote = noteToSave as? ChecklistNote {
+                            checklistNote.items = self.encodeChecklistItems(currentChecklist)
+                        }
+                        
+                        let searchIndexRequest: NSFetchRequest<SearchIndex> = SearchIndex.fetchRequest()
+                        searchIndexRequest.predicate = NSPredicate(format: "id == %@", noteToSave.id! as CVarArg)
+                        
+                        let searchIndex: SearchIndex
+                        if let existingIndex = try self.viewContext.fetch(searchIndexRequest).first {
+                            searchIndex = existingIndex
+                        } else {
+                            searchIndex = SearchIndex(context: self.viewContext)
+                            searchIndex.id = noteToSave.id!
+                        }
+                        
+                        let indexPayload = IndexPayload(
+                            id: noteToSave.id!,
+                            title: currentTitle,
+                            tags: tagNames,
+                            summary: String(summary),
+                            createdAt: noteToSave.createdAt ?? now,
+                            updatedAt: now,
+                            pinned: noteToSave.isPinned
+                        )
+                        
+                        let encryptedIndexData = try CryptoHelper.encrypt(indexPayload, key: encryptionKey)
+                        searchIndex.encryptedIndexData = encryptedIndexData
+                        
+                        var tagEntities: [Tag] = []
+                        for tagName in tagNames {
+                            let request: NSFetchRequest<Tag> = Tag.fetchRequest()
+                            request.predicate = NSPredicate(format: "name == %@", tagName)
+                            
+                            if let existingTag = try self.viewContext.fetch(request).first {
+                                tagEntities.append(existingTag)
+                            } else {
+                                let newTag = Tag(context: self.viewContext)
+                                newTag.id = UUID()
+                                newTag.name = tagName
+                                newTag.createdAt = Date()
+                                tagEntities.append(newTag)
+                            }
+                        }
+                        
+                        noteToSave.tags = NSSet(array: tagEntities)
+                        try self.viewContext.save()
+                        self.noteIndexViewModel.refreshIndex(from: self.viewContext)
+                        SyncService.shared.upload(notes: Array(self.allNotes))
+                        
+                    } catch {
+                        if NoteIDManager.handleSaveError(error, in: self.viewContext, retryAction: {
+                            try self.viewContext.save()
+                            self.noteIndexViewModel.refreshIndex(from: self.viewContext)
+                            SyncService.shared.upload(notes: Array(self.allNotes))
+                        }) {
+                            return
+                        }
+                        
+                        let nsError = error as NSError
+                        print("Auto-save error: \(nsError)")
+                    }
+                }
+                
+            } catch {
+                DispatchQueue.main.async {
+                    let nsError = error as NSError
+                    print("Auto-save encryption error: \(nsError)")
+                }
+            }
+        }
     }
     
     private func saveNote() {

@@ -94,17 +94,42 @@ struct NoteEditView: View {
             // Main content
             Form {
             Section(header: Text("Note Details")) {
-                TextField("Title", text: $title)
-                    .font(.headline)
-                    .onSubmit {
-                        autoSave()
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .center, spacing: 12) {
+                        Text("Title")
+                            .font(.footnote)
+                            .foregroundColor(Color(UIColor.secondaryLabel))
+                            .textCase(.uppercase)
+                            .frame(width: 60, alignment: .leading)
+                        
+                        TextField("", text: $title)
+                            .font(.headline)
+                            .padding(8)
+                            .background(Color(UIColor.secondarySystemGroupedBackground))
+                            .cornerRadius(8)
+                            .onSubmit {
+                                autoSave()
+                            }
                     }
-                
-                TextField("Tags", text: $tags)
-                    .font(.subheadline)
-                    .onSubmit {
-                        autoSave()
+                    
+                    HStack(alignment: .center, spacing: 12) {
+                        Text("Tags")
+                            .font(.footnote)
+                            .foregroundColor(Color(UIColor.secondaryLabel))
+                            .textCase(.uppercase)
+                            .frame(width: 60, alignment: .leading)
+                        
+                        TextField("", text: $tags)
+                            .font(.subheadline)
+                            .padding(8)
+                            .background(Color(UIColor.secondarySystemGroupedBackground))
+                            .cornerRadius(8)
+                            .onSubmit {
+                                autoSave()
+                            }
                     }
+                }
+                .listRowBackground(Color.clear)
             }
             
             Section(header: contentHeader) {

@@ -110,7 +110,7 @@ struct NoteEditView: View {
             Section(header: contentHeader) {
                 if note is ChecklistNote {
                     ChecklistEditor(items: $checklistItems)
-                        .frame(minHeight: 250, maxHeight: .infinity)
+                        .frame(minHeight: 400)
                         .onChange(of: checklistItems) { oldValue, newValue in
                             autoSave()
                         }
@@ -129,7 +129,7 @@ struct NoteEditView: View {
                             isH2: $isH2,
                             isH3: $isH3
                         )
-                        .frame(minHeight: 200)
+                        .frame(minHeight: 400)
                         .onChange(of: noteBody) { oldValue, newValue in
                             autoSave()
                         }

@@ -75,6 +75,7 @@ struct NoteEditView: View {
     // Local validation alert state
     @State private var showValidationAlert = false
     @State private var validationMessage = ""
+    @State private var showClearContentAlert = false
     
     var body: some View {
         VStack(spacing: 0) {
@@ -284,6 +285,14 @@ struct NoteEditView: View {
             }
         } message: {
             Text(validationMessage)
+        }
+        .alert("Clear all note content?", isPresented: $showClearContentAlert) {
+            Button("Cancel", role: .cancel) {
+                showClearContentAlert = false
+            }
+            Button("Yes", role: .destructive) {
+                clearContent()
+            }
         }
         .sheet(isPresented: $showLinkDialog) {
             NavigationView {
@@ -867,6 +876,15 @@ struct NoteEditView: View {
         // Clear the input fields
         linkDisplayLabel = ""
         linkURL = ""
+    }
+    
+    private func clearContent() {
+        if note is ChecklistNote {
+            checklistItems.removeAll()
+        } else {
+            noteBody = NSAttributedString()
+        }
+        autoSave()
     }
     
     private func exportNoteAndPresentShare() {
@@ -1849,7 +1867,15 @@ class ShareableDataItem: NSObject, UIActivityItemSource {
 extension NoteEditView {
     private var contentHeader: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Content")
+            HStack {
+                Text("Content")
+                Spacer()
+                Button("Clear") {
+                    showClearContentAlert = true
+                }
+                .font(.footnote)
+                .foregroundColor(.red)
+            }
             if !(note is ChecklistNote) {
                 formattingBar
             }
